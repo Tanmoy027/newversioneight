@@ -7,6 +7,7 @@ import { CartProvider } from '@/lib/cart-context'
 import { Toaster } from '@/components/ui/sonner'
 import Header from '@/components/layout/header'
 import Footer from '@/components/layout/footer'
+import LenisProvider from '@/components/ui/lenis-provider'
 import { usePathname } from 'next/navigation'
 
 const inter = Inter({ subsets: ['latin'] })
@@ -20,10 +21,12 @@ export default function RootLayout({ children }) {
       <body className={inter.className}>
         <SupabaseProvider>
           <CartProvider>
-            {!isAdminRoute && <Header />}
-            <main>{children}</main>
-            {!isAdminRoute && <Footer />}
-            <Toaster />
+            <LenisProvider>
+              {!isAdminRoute && <Header />}
+              <main>{children}</main>
+              {!isAdminRoute && <Footer />}
+              <Toaster />
+            </LenisProvider>
           </CartProvider>
         </SupabaseProvider>
       </body>
