@@ -43,10 +43,25 @@ export function useAuth() {
         .eq('id', userId)
         .single()
 
-      if (error) throw error
-      setProfile(data)
+      if (error) {
+        // If profile doesn't exist, create a basic one or use default
+        console.warn('Profile not found, using default:', error.message)
+        setProfile({
+          id: userId,
+          is_admin: false,
+          full_name: 'User'
+        })
+      } else {
+        setProfile(data)
+      }
     } catch (error) {
       console.error('Error fetching profile:', error)
+      // Set default profile on error
+      setProfile({
+        id: userId,
+        is_admin: false,
+        full_name: 'User'
+      })
     } finally {
       setLoading(false)
     }

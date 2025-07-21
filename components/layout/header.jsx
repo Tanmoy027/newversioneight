@@ -345,7 +345,7 @@ export default function Header() {
     hoverTimeoutRef.current = setTimeout(() => {
       setIsMegaMenuOpen(false)
       setHoveredCategory(null)
-    }, 150) // Small delay to allow moving to dropdown
+    }, 300) // Small delay to allow moving to dropdown
   }
 
   const handleDropdownEnter = () => {
@@ -545,7 +545,7 @@ export default function Header() {
       {isMegaMenuOpen && (
         <div
           ref={megaMenuRef}
-          className="fixed left-1/2 transform -translate-x-1/2 top-20 z-40 hidden md:block"
+          className="fixed left-1/2 transform -translate-x-1/2 top-20 z-50 hidden md:block"
           onMouseEnter={handleDropdownEnter}
           onMouseLeave={handleDropdownLeave}
         >

@@ -14,17 +14,9 @@ export function ProductGrid({ categoryId, featured, limit }) {
 
   const fetchProducts = async () => {
     try {
-      console.log('Fetching products with params:', { categoryId, featured, limit })
-      
       let query = supabase
         .from('products')
-        .select(`
-          *,
-          categories (
-            id,
-            name
-          )
-        `)
+        .select('*')
         .order('created_at', { ascending: false })
 
       if (categoryId) {
@@ -42,11 +34,9 @@ export function ProductGrid({ categoryId, featured, limit }) {
       const { data, error } = await query
 
       if (error) {
-        console.error('Error fetching products:', error)
         throw error
       }
       
-      console.log('Fetched products:', data)
       setProducts(data || [])
     } catch (error) {
       console.error('Error fetching products:', error)
