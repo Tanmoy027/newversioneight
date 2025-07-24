@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAuth } from '@/hooks/useAuth'
+import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
 import { Eye, EyeOff } from 'lucide-react'
 
@@ -33,13 +34,36 @@ export default function AuthPage() {
     setIsLoading(true)
 
     try {
-      const { error } = await signIn(signInData.email, signInData.password)
+      const { data, error } = await signIn(signInData.email, signInData.password)
       
       if (error) {
-        toast.error(error.message)
+        if (error.message.includes('Invalid login credentials')) {
+          toast.error('Invalid email or password. Please check your credentials.')
+        } else if (error.message.includes('Email not confirmed')) {
+          toast.error('Please check your email and confirm your account before signing in.')
+        } else {
+          toast.error(error.message)
+        }
       } else {
         toast.success('Welcome back!')
-        router.push('/')
+        
+        // Check if user is admin and redirect accordingly
+        if (data?.user) {
+          // Check admin status from user metadata or make API call
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('is_admin')
+            .eq('id', data.user.id)
+            .single()
+          
+          if (profile?.is_admin) {
+            router.push('/admin')
+          } else {
+            router.push('/')
+          }
+        } else {
+          router.push('/')
+        }
       }
     } catch (error) {
       toast.error('Something went wrong')
@@ -59,13 +83,17 @@ export default function AuthPage() {
     setIsLoading(true)
 
     try {
-      const { error } = await signUp(signUpData.email, signUpData.password, signUpData.fullName)
+      const { data, error } = await signUp(signUpData.email, signUpData.password, signUpData.fullName)
       
       if (error) {
         toast.error(error.message)
       } else {
-        toast.success('Account created successfully!')
-        router.push('/')
+        if (data.user && !data.user.email_confirmed_at) {
+          toast.success('Account created! Please check your email to confirm your account before signing in.')
+        } else {
+          toast.success('Account created successfully!')
+          router.push('/')
+        }
       }
     } catch (error) {
       toast.error('Something went wrong')

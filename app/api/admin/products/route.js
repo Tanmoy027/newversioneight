@@ -1,20 +1,63 @@
 import { supabaseAdmin } from "@/lib/supabase-admin"
+import { cachedQuery, createCacheKey, addCacheHeaders, invalidateAllProductCache } from "@/lib/cache"
 
-export async function GET() {
+export async function GET(request) {
   try {
-    const { data, error } = await supabaseAdmin
-      .from("products")
-      .select(`
-        *,
-        categories (
-          id,
-          name
-        )
-      `)
-      .order("created_at", { ascending: false })
+    const { searchParams } = new URL(request.url)
+    const page = parseInt(searchParams.get('page') || '1')
+    const limit = parseInt(searchParams.get('limit') || '20')
+    const category = searchParams.get('category')
+    const featured = searchParams.get('featured') === 'true'
+    
+    const offset = (page - 1) * limit
+    const cacheKey = createCacheKey('products', 'list', page, limit, category, featured)
+    
+    const result = await cachedQuery(
+      cacheKey,
+      async () => {
+        let query = supabaseAdmin
+          .from("products")
+          .select(`
+            *,
+            categories (
+              id,
+              name
+            )
+          `, { count: 'exact' })
+          .order("created_at", { ascending: false })
+          .range(offset, offset + limit - 1)
 
-    if (error) {
-      console.error("Database error:", error)
+        if (category && category !== 'all') {
+          query = query.eq('category_id', category)
+        }
+
+        if (featured) {
+          query = query.eq('is_featured', true)
+        }
+
+        const { data, error, count } = await query
+
+        if (error) {
+          throw error
+        }
+
+        return {
+          data: data || [],
+          pagination: {
+            page,
+            limit,
+            total: count,
+            totalPages: Math.ceil(count / limit),
+            hasNext: offset + limit < count,
+            hasPrev: page > 1
+          }
+        }
+      },
+      180 // Cache for 3 minutes - products change more frequently
+    )
+
+    if (result.error) {
+      console.error("Database error:", result.error)
       return Response.json(
         {
           success: false,
@@ -24,10 +67,14 @@ export async function GET() {
       )
     }
 
-    return Response.json({
+    const response = Response.json({
       success: true,
-      data: data || [],
+      data: result.data,
+      pagination: result.pagination,
     })
+
+    // Add cache headers
+    return addCacheHeaders(response, 180, 360) // 3 min client, 6 min CDN
   } catch (error) {
     console.error("API error:", error)
     return Response.json(
@@ -147,6 +194,9 @@ export async function POST(request) {
         { status: 500 },
       )
     }
+
+    // Invalidate product caches when new product is created
+    invalidateAllProductCache()
 
     return Response.json({
       success: true,

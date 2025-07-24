@@ -7,6 +7,7 @@ import { usePathname, useRouter } from "next/navigation"
 import { Menu, X, ShoppingCart, User, Settings, ChevronDown, Search } from "lucide-react"
 import { useSupabase } from "@/lib/supabase-provider"
 import { useCart } from "@/lib/cart-context"
+import { useAuth } from "@/hooks/useAuth"
 
 export default function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
@@ -15,8 +16,7 @@ export default function Header() {
   const [isMegaMenuOpen, setIsMegaMenuOpen] = useState(false)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
-  const [user, setUser] = useState(null)
-  const [isAdmin, setIsAdmin] = useState(false)
+  const { user, signOut, isAdmin } = useAuth()
   const [hoveredCategory, setHoveredCategory] = useState(null)
   const [allCategories, setAllCategories] = useState([])
   const [categoriesLoading, setCategoriesLoading] = useState(true)
@@ -239,49 +239,6 @@ export default function Header() {
     }
   }, [])
 
-  useEffect(() => {
-    const getUser = async () => {
-      try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession()
-
-        setUser(session?.user || null)
-
-        if (session?.user) {
-          // Check if user is admin
-          const { data, error } = await supabase.from("profiles").select("is_admin").eq("id", session.user.id).single()
-
-          if (!error && data) {
-            setIsAdmin(data.is_admin)
-          }
-        }
-      } catch (error) {
-        console.error("Error getting user:", error)
-      }
-    }
-
-    getUser()
-
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      setUser(session?.user || null)
-
-      if (session?.user) {
-        // Check if user is admin
-        const { data, error } = await supabase.from("profiles").select("is_admin").eq("id", session.user.id).single()
-
-        if (!error && data) {
-          setIsAdmin(data.is_admin)
-        }
-      } else {
-        setIsAdmin(false)
-      }
-    })
-
-    return () => {
-      authListener?.subscription?.unsubscribe()
-    }
-  }, [supabase])
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -489,9 +446,13 @@ export default function Header() {
                     )}
                     <button
                       onClick={async () => {
-                        await supabase.auth.signOut()
-                        setIsAccountMenuOpen(false)
-                        router.push("/")
+                        try {
+                          await signOut()
+                          setIsAccountMenuOpen(false)
+                          router.push("/")
+                        } catch (error) {
+                          console.error('Error signing out:', error)
+                        }
                       }}
                       className="block w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50"
                     >

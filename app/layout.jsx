@@ -9,12 +9,16 @@ import Header from '@/components/layout/header'
 import Footer from '@/components/layout/footer'
 import LenisProvider from '@/components/ui/lenis-provider'
 import { usePathname } from 'next/navigation'
+import { useConnectionKeepAlive } from '@/hooks/useConnectionKeepAlive'
 
 const inter = Inter({ subsets: ['latin'] })
 
 export default function RootLayout({ children }) {
   const pathname = usePathname()
   const isAdminRoute = pathname?.startsWith('/admin')
+  
+  // Keep Supabase connection alive
+  useConnectionKeepAlive()
 
   return (
     <html lang="en">

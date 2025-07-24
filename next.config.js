@@ -7,8 +7,8 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   images: { 
-    domains: ['images.pexels.com', 'supabase.co'],
-    unoptimized: true 
+    domains: ['images.pexels.com', 'supabase.co', 'cwpwushsxgnyzfcsdace.supabase.co'],
+    formats: ['image/webp', 'image/avif']
   },
   experimental: {
     esmExternals: 'loose',

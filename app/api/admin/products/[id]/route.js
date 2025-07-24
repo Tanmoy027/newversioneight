@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase-admin"
+import { cachedQuery, createCacheKey, addCacheHeaders, invalidateAllProductCache } from "@/lib/cache"
 
 export async function GET(request, { params }) {
   try {
@@ -16,33 +17,53 @@ export async function GET(request, { params }) {
       )
     }
 
-    const { data, error } = await supabaseAdmin
-      .from("products")
-      .select(`
-        *,
-        categories (
-          id,
-          name
-        )
-      `)
-      .eq("id", id)
-      .single()
+    const cacheKey = createCacheKey('products', 'single', id)
+    
+    const result = await cachedQuery(
+      cacheKey,
+      async () => {
+        const { data, error } = await supabaseAdmin
+          .from("products")
+          .select(`
+            *,
+            categories (
+              id,
+              name
+            )
+          `)
+          .eq("id", id)
+          .single()
 
-    if (error) {
-      console.error("Database error:", error)
+        if (error) {
+          if (error.code === "PGRST116") {
+            return { error: "Product not found", status: 404 }
+          }
+          throw error
+        }
+
+        return { data }
+      },
+      300 // Cache individual products for 5 minutes
+    )
+
+    if (result.error) {
+      console.error("Database error:", result.error)
       return Response.json(
         {
           success: false,
-          error: "Product not found",
+          error: result.error,
         },
-        { status: 404 },
+        { status: result.status || 500 },
       )
     }
 
-    return Response.json({
+    const response = Response.json({
       success: true,
-      data,
+      data: result.data,
     })
+
+    // Add cache headers
+    return addCacheHeaders(response, 300, 600) // 5 min client, 10 min CDN
   } catch (error) {
     console.error("API error:", error)
     return Response.json(
@@ -179,6 +200,9 @@ export async function PUT(request, { params }) {
       )
     }
 
+    // Invalidate product caches when product is updated
+    invalidateAllProductCache()
+
     return Response.json({
       success: true,
       data,
@@ -223,6 +247,9 @@ export async function DELETE(request, { params }) {
         { status: 500 },
       )
     }
+
+    // Invalidate product caches when product is deleted
+    invalidateAllProductCache()
 
     return Response.json({
       success: true,

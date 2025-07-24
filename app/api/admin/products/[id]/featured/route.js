@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase-admin"
+import { invalidateAllProductCache } from "@/lib/cache"
 
 export async function PATCH(request, { params }) {
   try {
@@ -41,6 +42,9 @@ export async function PATCH(request, { params }) {
         { status: 500 },
       )
     }
+
+    // Invalidate product caches when featured status changes
+    invalidateAllProductCache()
 
     return Response.json({
       success: true,

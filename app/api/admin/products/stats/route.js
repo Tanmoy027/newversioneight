@@ -1,14 +1,37 @@
 import { supabaseAdmin } from "@/lib/supabase-admin"
+import { cachedQuery, createCacheKey, addCacheHeaders } from "@/lib/cache"
 
 export async function GET() {
   try {
-    // Get total products count
-    const { count: totalCount, error: totalError } = await supabaseAdmin
-      .from("products")
-      .select("*", { count: "exact", head: true })
+    const cacheKey = createCacheKey('products', 'stats')
+    
+    const result = await cachedQuery(
+      cacheKey,
+      async () => {
+        // Single query to get all products with their stock and featured status
+        const { data, error } = await supabaseAdmin
+          .from("products")
+          .select("stock, is_featured")
 
-    if (totalError) {
-      console.error("Error fetching total count:", totalError)
+        if (error) {
+          throw error
+        }
+
+        // Calculate all stats from the single result set
+        const stats = {
+          total: data.length,
+          featured: data.filter(p => p.is_featured).length,
+          outOfStock: data.filter(p => p.stock === 0).length,
+          lowStock: data.filter(p => p.stock > 0 && p.stock <= 5).length,
+        }
+
+        return { data: stats }
+      },
+      300 // Cache for 5 minutes - stats can be slightly stale
+    )
+
+    if (result.error) {
+      console.error("Database error:", result.error)
       return Response.json(
         {
           success: false,
@@ -18,48 +41,13 @@ export async function GET() {
       )
     }
 
-    // Get featured products count
-    const { count: featuredCount, error: featuredError } = await supabaseAdmin
-      .from("products")
-      .select("*", { count: "exact", head: true })
-      .eq("is_featured", true)
-
-    if (featuredError) {
-      console.error("Error fetching featured count:", featuredError)
-    }
-
-    // Get out of stock products count
-    const { count: outOfStockCount, error: outOfStockError } = await supabaseAdmin
-      .from("products")
-      .select("*", { count: "exact", head: true })
-      .eq("stock", 0)
-
-    if (outOfStockError) {
-      console.error("Error fetching out of stock count:", outOfStockError)
-    }
-
-    // Get low stock products count (stock <= 5 but > 0)
-    const { count: lowStockCount, error: lowStockError } = await supabaseAdmin
-      .from("products")
-      .select("*", { count: "exact", head: true })
-      .gt("stock", 0)
-      .lte("stock", 5)
-
-    if (lowStockError) {
-      console.error("Error fetching low stock count:", lowStockError)
-    }
-
-    const stats = {
-      total: totalCount || 0,
-      featured: featuredCount || 0,
-      outOfStock: outOfStockCount || 0,
-      lowStock: lowStockCount || 0,
-    }
-
-    return Response.json({
+    const response = Response.json({
       success: true,
-      data: stats,
+      data: result.data,
     })
+
+    // Add cache headers - stats can be cached for a few minutes
+    return addCacheHeaders(response, 300, 600) // 5 min client, 10 min CDN
   } catch (error) {
     console.error("API error:", error)
     return Response.json(
