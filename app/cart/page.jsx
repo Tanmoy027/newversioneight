@@ -13,7 +13,7 @@ import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
 
 export default function CartPage() {
-  const { state, updateQuantity, removeFromCart, clearCart } = useCart()
+  const { cartItems, updateQuantity, removeFromCart, clearCart, getCartTotal, getCartItemsCount } = useCart()
   const { user } = useAuth()
   const [isLoading, setIsLoading] = useState(false)
   const [shippingAddress, setShippingAddress] = useState('')
@@ -24,7 +24,7 @@ export default function CartPage() {
       return
     }
 
-    if (state.items.length === 0) {
+    if (cartItems.length === 0) {
       toast.error('Your cart is empty')
       return
     }
@@ -42,7 +42,7 @@ export default function CartPage() {
         .from('orders')
         .insert({
           user_id: user.id,
-          total_amount: state.total,
+          total_amount: getCartTotal(),
           shipping_address: shippingAddress,
           status: 'pending'
         })
@@ -52,7 +52,7 @@ export default function CartPage() {
       if (orderError) throw orderError
 
       // Create order items
-      const orderItems = state.items.map(item => ({
+      const orderItems = cartItems.map(item => ({
         order_id: order.id,
         product_id: item.id,
         quantity: item.quantity,
@@ -96,7 +96,7 @@ export default function CartPage() {
     )
   }
 
-  if (state.items.length === 0) {
+  if (cartItems.length === 0) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <Card className="max-w-md w-full mx-4">
@@ -121,7 +121,7 @@ export default function CartPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Cart Items */}
           <div className="lg:col-span-2 space-y-4">
-            {state.items.map((item) => (
+            {cartItems.map((item) => (
               <Card key={item.id}>
                 <CardContent className="p-6">
                   <div className="flex items-center space-x-4">
@@ -136,7 +136,7 @@ export default function CartPage() {
                     
                     <div className="flex-1">
                       <h3 className="font-semibold text-lg">{item.name}</h3>
-                      <p className="text-amber-600 font-medium">${item.price.toFixed(2)}</p>
+                      <p className="text-amber-600 font-medium">৳{item.price.toFixed(2)}</p>
                     </div>
                     
                     <div className="flex items-center space-x-2">
@@ -159,7 +159,7 @@ export default function CartPage() {
                     </div>
                     
                     <div className="text-right">
-                      <p className="font-semibold">${(item.price * item.quantity).toFixed(2)}</p>
+                      <p className="font-semibold">৳{(item.price * item.quantity).toFixed(2)}</p>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -183,8 +183,8 @@ export default function CartPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex justify-between">
-                  <span>Subtotal ({state.itemCount} items)</span>
-                  <span>${state.total.toFixed(2)}</span>
+                  <span>Subtotal ({getCartItemsCount()} items)</span>
+                  <span>৳{getCartTotal().toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Shipping</span>
@@ -193,7 +193,7 @@ export default function CartPage() {
                 <div className="border-t pt-4">
                   <div className="flex justify-between font-semibold text-lg">
                     <span>Total</span>
-                    <span>${state.total.toFixed(2)}</span>
+                    <span>৳{getCartTotal().toFixed(2)}</span>
                   </div>
                 </div>
                 

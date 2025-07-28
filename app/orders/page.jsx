@@ -14,10 +14,10 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (user) {
+    if (!authLoading && user) {
       fetchOrders()
     }
-  }, [user])
+  }, [user, authLoading])
 
   const fetchOrders = async () => {
     try {
@@ -121,7 +121,7 @@ export default function OrdersPage() {
                     <div className="flex items-center space-x-2">
                       <DollarSign className="h-4 w-4 text-gray-500" />
                       <span className="text-sm text-gray-600">
-                        ${order.total_amount.toFixed(2)}
+                        ৳{order.total_amount.toFixed(2)}
                       </span>
                     </div>
                     <div className="flex items-center space-x-2">
@@ -142,12 +142,12 @@ export default function OrdersPage() {
                         <div className="flex-1">
                           <p className="font-medium">{item.products.name}</p>
                           <p className="text-sm text-gray-600">
-                            Quantity: {item.quantity} × ${item.price.toFixed(2)}
+                            Quantity: {item.quantity} × ৳{item.price.toFixed(2)}
                           </p>
                         </div>
                         <div className="text-right">
                           <p className="font-medium">
-                            ${(item.quantity * item.price).toFixed(2)}
+                            ৳{(item.quantity * item.price).toFixed(2)}
                           </p>
                         </div>
                       </div>

@@ -9,7 +9,6 @@ const STATIC_ASSETS = [
   '/offline.html',
   '/logo.png',
   '/favicon.ico',
-  '/products',
   '/about',
   '/contact',
   '/interior',
@@ -19,9 +18,7 @@ const STATIC_ASSETS = [
 
 // API routes to cache
 const API_ROUTES = [
-  '/api/categories',
-  '/api/products',
-  '/api/products/featured'
+  '/api/categories'
 ]
 
 // Install event - cache static assets
@@ -116,7 +113,24 @@ async function handleApiRequest(request) {
   const cache = await caches.open(DYNAMIC_CACHE_NAME)
   const cachedResponse = await cache.match(request)
   
-  // Return cached response if available and not too old
+  // Skip caching for products API to ensure fresh data
+  if (request.url.includes('/api/products') || request.url.includes('/api/admin/products')) {
+    try {
+      console.log('Service Worker: Fetching fresh products data:', request.url)
+      return await fetch(request)
+    } catch (error) {
+      console.log('Service Worker: Network failed for products, serving from cache:', request.url)
+      return cachedResponse || new Response(JSON.stringify({ 
+        error: 'Network unavailable',
+        offline: true 
+      }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    }
+  }
+  
+  // Return cached response if available and not too old (for other APIs)
   if (cachedResponse) {
     const cachedDate = new Date(cachedResponse.headers.get('date'))
     const now = new Date()

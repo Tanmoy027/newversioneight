@@ -91,11 +91,11 @@ export default function TrendyProducts({ products = [] }) {
                   <div className="mt-2">
                     {product.discount_price ? (
                       <div className="flex items-center justify-center space-x-2">
-                        <span className="text-gray-500 line-through">${product.price}</span>
-                        <span className="text-red-600 font-bold">${product.discount_price}</span>
+                        <span className="text-gray-500 line-through">৳{product.price}</span>
+                        <span className="text-red-600 font-bold">৳{product.discount_price}</span>
                       </div>
                     ) : (
-                      <span className="text-gray-900 font-bold">${product.price}</span>
+                      <span className="text-gray-900 font-bold">৳{product.price}</span>
                     )}
                   </div>
                 </div>

@@ -447,7 +447,8 @@ export default function Header() {
                     <button
                       onClick={async () => {
                         try {
-                          await signOut()
+                          const { error } = await signOut()
+                          if (error) throw error
                           setIsAccountMenuOpen(false)
                           router.push("/")
                         } catch (error) {
@@ -689,9 +690,14 @@ export default function Header() {
                     )}
                     <button
                       onClick={async () => {
-                        await supabase.auth.signOut()
-                        closeMenu()
-                        router.push("/")
+                        try {
+                          const { error } = await signOut()
+                          if (error) throw error
+                          closeMenu()
+                          router.push("/")
+                        } catch (error) {
+                          console.error('Error signing out:', error)
+                        }
                       }}
                       className="block py-2 text-sm text-red-600"
                     >

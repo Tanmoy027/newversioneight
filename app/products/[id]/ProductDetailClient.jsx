@@ -92,7 +92,7 @@ export default function ProductDetailClient({ product }) {
               </h1>
               <div className="flex items-center space-x-4 mb-4">
                 <span className="text-3xl font-bold text-amber-600">
-                  ${product.price.toFixed(2)}
+                  ৳{product.price.toFixed(2)}
                 </span>
                 <div className="flex items-center space-x-1">
                   {Array.from({ length: 5 }).map((_, i) => (

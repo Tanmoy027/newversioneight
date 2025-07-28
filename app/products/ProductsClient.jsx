@@ -70,7 +70,7 @@ export default function ProductsClient({ initialProducts, categories, initialCat
           </p>
           <div className="flex items-center justify-between">
             <span className="text-xl font-bold text-amber-600">
-              ${product.price.toFixed(2)}
+              ৳{product.price.toFixed(2)}
             </span>
             <span className={`text-sm ${
               product.stock > 10 ? 'text-green-600' : 

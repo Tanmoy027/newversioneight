@@ -1,12 +1,12 @@
 import { supabase } from '@/lib/supabase'
 import ProductsClient from './ProductsClient'
 
-// Server-side data fetching - reliable like trendy section
+// Server-side data fetching - always fresh data
 async function getProducts() {
   try {
-    console.log('Server: Fetching products and categories')
+    console.log('Server: Fetching fresh products and categories')
     
-    // Fetch products and categories in parallel
+    // Fetch products and categories in parallel with no cache
     const [productsResult, categoriesResult] = await Promise.all([
       supabase
         .from('products')
@@ -17,12 +17,14 @@ async function getProducts() {
             name
           )
         `)
-        .order('created_at', { ascending: false }),
+        .order('created_at', { ascending: false })
+        .abortSignal(AbortSignal.timeout(10000)), // 10 second timeout
       
       supabase
         .from('categories')
         .select('id, name')
         .order('name')
+        .abortSignal(AbortSignal.timeout(10000)) // 10 second timeout
     ])
 
     let products = []
@@ -48,7 +50,7 @@ async function getProducts() {
       categories = categoriesResult.data
     }
 
-    console.log(`Server: Fetched ${products.length} products and ${categories.length} categories`)
+    console.log(`Server: Fetched ${products.length} products and ${categories.length} categories at ${new Date().toISOString()}`)
     
     return { products, categories }
     
@@ -72,4 +74,21 @@ export default async function ProductsPage({ searchParams }) {
       initialCategory={initialCategory}
     />
   )
+}
+
+// Force dynamic rendering and disable caching
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
+// Add headers to prevent all forms of caching
+export async function generateMetadata() {
+  return {
+    title: 'Products - Eight Hands Work',
+    description: 'Browse our latest furniture collection',
+    other: {
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    }
+  }
 }
