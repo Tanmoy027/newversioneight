@@ -121,60 +121,60 @@ export async function POST(request) {
       }
     }
 
-    // Handle single image upload (your schema only supports one image_url)
-    const imageFile = formData.get("image") || formData.get("image_0")
+    // Handle multiple image uploads (up to 4)
+    const imageUrls = []
+    for (let i = 0; i < 4; i++) {
+      const imageFile = formData.get(`image_${i}`)
+      if (imageFile && imageFile.size > 0) {
+        const fileName = `${Date.now()}-${i}-${imageFile.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`
 
-    if (imageFile && imageFile.size > 0) {
-      const fileName = `${Date.now()}-${imageFile.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`
+        try {
+          // Upload to Supabase Storage
+          const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
+            .from("productimage")
+            .upload(fileName, imageFile, {
+              cacheControl: "3600",
+              upsert: false,
+            })
 
-      try {
-        // Upload to Supabase Storage
-        const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
-          .from("productimage")
-          .upload(fileName, imageFile, {
-            cacheControl: "3600",
-            upsert: false,
-          })
+          if (uploadError) {
+            console.error("Upload error:", uploadError)
+            return Response.json(
+              {
+                success: false,
+                error: `Failed to upload image ${i}: ${uploadError.message}`,
+              },
+              { status: 500 },
+            )
+          }
 
-        if (uploadError) {
-          console.error("Upload error:", uploadError)
+          // Get public URL
+          const {
+            data: { publicUrl },
+          } = supabaseAdmin.storage.from("productimage").getPublicUrl(fileName)
+
+          imageUrls.push(publicUrl)
+        } catch (uploadError) {
+          console.error(`Image ${i} upload error:`, uploadError)
           return Response.json(
             {
               success: false,
-              error: `Failed to upload image: ${uploadError.message}`,
+              error: `Failed to upload image ${i}`,
             },
             { status: 500 },
           )
         }
-
-        // Get public URL
-        const {
-          data: { publicUrl },
-        } = supabaseAdmin.storage.from("productimage").getPublicUrl(fileName)
-
-        productData.image_url = publicUrl
-      } catch (uploadError) {
-        console.error("Image upload error:", uploadError)
-        return Response.json(
-          {
-            success: false,
-            error: "Failed to upload image",
-          },
-          { status: 500 },
-        )
       }
-    } else {
-      // Use provided image URL if no file uploaded
-      const imageUrl = formData.get("image_url")
-      if (imageUrl) {
-        productData.image_url = imageUrl
-      }
+    }
+
+    if (imageUrls.length > 0) {
+      productData.image_urls = imageUrls
     }
 
     // Insert product into database
     const { data, error } = await supabaseAdmin
       .from("products")
-      .insert([productData])
+      .insert([{ ...productData, image_urls: productData.image_urls || [] }])
       .select(`
         *,
         categories (

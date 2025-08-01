@@ -18,7 +18,7 @@ export default function AddProductPage() {
   const [loading, setLoading] = useState(false)
   const [categories, setCategories] = useState([])
   const [categoriesLoading, setCategoriesLoading] = useState(true)
-  const [image, setImage] = useState(null)
+  const [images, setImages] = useState([])
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -62,35 +62,27 @@ export default function AddProductPage() {
   }
 
   const handleImageUpload = (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-
-    // Validate file size (5MB limit)
+  const files = Array.from(e.target.files).slice(0, 4 - images.length);
+  files.forEach(file => {
     if (file.size > 5 * 1024 * 1024) {
-      toast.error("Image size should be less than 5MB")
-      return
+      toast.error("Image size should be less than 5MB");
+      return;
     }
-
-    // Validate file type
     if (!file.type.startsWith('image/')) {
-      toast.error("Please select a valid image file")
-      return
+      toast.error("Please select a valid image file");
+      return;
     }
-
-    // Create preview
-    const reader = new FileReader()
+    const reader = new FileReader();
     reader.onload = (e) => {
-      setImage({
-        file,
-        preview: e.target.result,
-      })
-    }
-    reader.readAsDataURL(file)
-  }
+      setImages(prev => [...prev, {file, preview: e.target.result}]);
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
-  const removeImage = () => {
-    setImage(null)
-  }
+  const removeImage = (index) => {
+  setImages(prev => prev.filter((_, i) => i !== index));
+}
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -103,8 +95,8 @@ export default function AddProductPage() {
         return
       }
 
-      if (!image) {
-        toast.error("Please add a product image")
+      if (images.length === 0) {
+        toast.error("Please add at least one product image")
         return
       }
 
@@ -119,8 +111,10 @@ export default function AddProductPage() {
       submitData.append('stock', formData.stock)
       submitData.append('is_featured', formData.is_featured)
 
-      // Add image
-      submitData.append('image', image.file)
+      // Add images
+      images.forEach((img, index) => {
+        submitData.append(`image_${index}`, img.file);
+      })
 
       const response = await fetch("/api/admin/products", {
         method: "POST",
@@ -186,7 +180,7 @@ export default function AddProductPage() {
                   </SelectTrigger>
                   <SelectContent>
                     {categoriesLoading ? (
-                      <SelectItem value="" disabled>Loading categories...</SelectItem>
+                      <SelectItem value="loading" disabled>Loading categories...</SelectItem>
                     ) : categories.length > 0 ? (
                       categories.map((category) => (
                         <SelectItem key={category.id} value={category.id}>
@@ -194,7 +188,7 @@ export default function AddProductPage() {
                         </SelectItem>
                       ))
                     ) : (
-                      <SelectItem value="" disabled>No categories found</SelectItem>
+                      <SelectItem value="no-categories" disabled>No categories found</SelectItem>
                     )}
                   </SelectContent>
                 </Select>
@@ -252,49 +246,52 @@ export default function AddProductPage() {
           <CardContent>
             <div className="space-y-4">
               <div>
-                <Label htmlFor="image">Upload Image *</Label>
+                <Label htmlFor="image">Upload Images (up to 4) *</Label>
                 <Input
                   id="image"
                   type="file"
                   accept="image/*"
                   onChange={handleImageUpload}
                   className="mt-1"
+                  multiple
                 />
                 <p className="text-sm text-gray-500 mt-1">
-                  Supported formats: JPG, PNG, WebP. Max size: 5MB.
+                  Supported formats: JPG, PNG, WebP. Max size: 5MB per image.
                 </p>
               </div>
 
               {/* Image Preview */}
-              {image && (
+              {images.length > 0 && (
                 <div>
-                  <Label>Image Preview</Label>
-                  <div className="mt-2">
-                    <div className="relative w-48 h-48 border-2 border-green-300 rounded-lg overflow-hidden">
-                      <Image
-                        src={image.preview}
-                        alt="Product image preview"
-                        fill
-                        className="object-cover"
-                        sizes="(max-width: 768px) 100vw, 192px"
-                      />
-                      <button
-                        type="button"
-                        onClick={removeImage}
-                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 transition-colors"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </div>
+                  <Label>Image Previews</Label>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
+                    {images.map((img, index) => (
+                      <div key={index} className="relative w-48 h-48 border-2 border-green-300 rounded-lg overflow-hidden">
+                        <Image
+                          src={img.preview}
+                          alt={`Product image ${index + 1}`}
+                          fill
+                          className="object-cover"
+                          sizes="(max-width: 768px) 100vw, 192px"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeImage(index)}
+                          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 transition-colors"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
 
               {/* No image state */}
-              {!image && (
+              {!images.length && (
                 <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
                   <Upload className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                  <p className="text-gray-500">No image uploaded. Please add a product image.</p>
+                  <p className="text-gray-500">No images uploaded. Please add at least one product image.</p>
                 </div>
               )}
             </div>

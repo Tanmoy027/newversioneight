@@ -19,8 +19,9 @@ export default function EditProductPage({ params }) {
   const [initialLoading, setInitialLoading] = useState(true)
   const [categories, setCategories] = useState([])
   const [categoriesLoading, setCategoriesLoading] = useState(true)
-  const [newImage, setNewImage] = useState(null)
-  const [currentImage, setCurrentImage] = useState("")
+  const [newImages, setNewImages] = useState([])
+  const [existingImages, setExistingImages] = useState([])
+  const [deletedImages, setDeletedImages] = useState([])
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -72,8 +73,7 @@ export default function EditProductPage({ params }) {
             stock: product.stock || "",
             is_featured: product.is_featured || false,
           })
-          // Set current image from API data (single image_url field)
-          setCurrentImage(product.image_url || "")
+          setExistingImages(product.image_urls || [])
         } else {
           toast.error("Product not found")
           router.push("/admin/products")
@@ -101,35 +101,24 @@ export default function EditProductPage({ params }) {
   }
 
   const handleImageUpload = (e) => {
-    const file = e.target.files[0]
-    if (!file) return
+  const maxNew = 4 - (existingImages.length - deletedImages.length + newImages.length);
+  const files = Array.from(e.target.files).slice(0, maxNew);
+  files.forEach(file => {
+    if (file.size > 5 * 1024 * 1024) return toast.error("Image size should be less than 5MB");
+    if (!file.type.startsWith('image/')) return toast.error("Please select a valid image file");
+    const reader = new FileReader();
+    reader.onload = (e) => setNewImages(prev => [...prev, {file, preview: e.target.result}]);
+    reader.readAsDataURL(file);
+  });
+}
 
-    // Validate file size (5MB limit)
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error("Image size should be less than 5MB")
-      return
-    }
-
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
-      toast.error("Please select a valid image file")
-      return
-    }
-
-    // Create preview
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      setNewImage({
-        file,
-        preview: e.target.result,
-      })
-    }
-    reader.readAsDataURL(file)
-  }
-
-  const removeNewImage = () => {
-    setNewImage(null)
-  }
+  const removeNewImage = (index) => {
+  setNewImages(prev => prev.filter((_, i) => i !== index));
+}
+const removeExistingImage = (index, url) => {
+  setDeletedImages(prev => [...prev, url]);
+  setExistingImages(prev => prev.filter((_, i) => i !== index));
+}
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -142,8 +131,8 @@ export default function EditProductPage({ params }) {
         return
       }
 
-      // Check if we have at least one image (current or new)
-      if (!currentImage && !newImage) {
+      const totalImages = existingImages.length + newImages.length;
+      if (totalImages === 0) {
         toast.error("Please add at least one product image")
         return
       }
@@ -159,15 +148,12 @@ export default function EditProductPage({ params }) {
       submitData.append('stock', formData.stock)
       submitData.append('is_featured', formData.is_featured)
 
-      // Add image if new one is uploaded
-      if (newImage) {
-        submitData.append('image', newImage.file)
-      }
-
-      // Keep current image if no new image uploaded
-      if (currentImage && !newImage) {
-        submitData.append('image_url', currentImage)
-      }
+      // Add deleted images
+      submitData.append('deleted_images', JSON.stringify(deletedImages));
+      // Add new images
+      newImages.forEach((img, index) => {
+        submitData.append(`image_${index}`, img.file);
+      });
 
       const response = await fetch(`/api/admin/products/${params.id}`, {
         method: "PUT",
@@ -241,7 +227,7 @@ export default function EditProductPage({ params }) {
                   </SelectTrigger>
                   <SelectContent>
                     {categoriesLoading ? (
-                      <SelectItem value="" disabled>Loading categories...</SelectItem>
+                      <SelectItem value="loading" disabled>Loading categories...</SelectItem>
                     ) : categories.length > 0 ? (
                       categories.map((category) => (
                         <SelectItem key={category.id} value={category.id}>
@@ -249,7 +235,7 @@ export default function EditProductPage({ params }) {
                         </SelectItem>
                       ))
                     ) : (
-                      <SelectItem value="" disabled>No categories found</SelectItem>
+                      <SelectItem value="no-categories" disabled>No categories found</SelectItem>
                     )}
                   </SelectContent>
                 </Select>
@@ -307,70 +293,55 @@ export default function EditProductPage({ params }) {
           <CardContent>
             <div className="space-y-4">
               <div>
-                <Label htmlFor="image">Upload New Image</Label>
+                <Label htmlFor="image">Upload New Images (up to 4 total)</Label>
                 <Input
                   id="image"
                   type="file"
                   accept="image/*"
                   onChange={handleImageUpload}
                   className="mt-1"
+                  multiple
                 />
                 <p className="text-sm text-gray-500 mt-1">
-                  Supported formats: JPG, PNG, WebP. Max size: 5MB.
+                  Supported formats: JPG, PNG, WebP. Max size: 5MB per image. Max 4 images total.
                 </p>
               </div>
 
               {/* Current Image */}
-              {currentImage && !newImage && (
+              {existingImages.length > 0 && (
                 <div>
-                  <Label>Current Image</Label>
-                  <div className="mt-2">
-                    <div className="relative w-48 h-48 border rounded-lg overflow-hidden">
-                      <Image
-                        src={currentImage}
-                        alt="Current product image"
-                        fill
-                        className="object-cover"
-                        sizes="(max-width: 768px) 100vw, 192px"
-                      />
-                    </div>
+                  <Label>Existing Images</Label>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
+                    {existingImages.map((url, index) => (
+                      <div key={index} className="relative w-48 h-48 border rounded-lg overflow-hidden">
+                        <Image src={url} alt={`Existing image ${index + 1}`} fill className="object-cover" sizes="(max-width: 768px) 100vw, 192px" />
+                        <button type="button" onClick={() => removeExistingImage(index, url)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600">
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
-
-              {/* New Image Preview */}
-              {newImage && (
+              {newImages.length > 0 && (
                 <div>
-                  <Label>New Image Preview</Label>
-                  <div className="mt-2">
-                    <div className="relative w-48 h-48 border-2 border-green-300 rounded-lg overflow-hidden">
-                      <Image
-                        src={newImage.preview}
-                        alt="New product image"
-                        fill
-                        className="object-cover"
-                        sizes="(max-width: 768px) 100vw, 192px"
-                      />
-                      <button
-                        type="button"
-                        onClick={removeNewImage}
-                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 transition-colors"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </div>
-                    <p className="text-sm text-green-600 mt-1">
-                      This new image will replace the current image when saved.
-                    </p>
+                  <Label>New Image Previews</Label>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
+                    {newImages.map((img, index) => (
+                      <div key={index} className="relative w-48 h-48 border-2 border-green-300 rounded-lg overflow-hidden">
+                        <Image src={img.preview} alt={`New image ${index + 1}`} fill className="object-cover" sizes="(max-width: 768px) 100vw, 192px" />
+                        <button type="button" onClick={() => removeNewImage(index)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600">
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
-
-              {/* No image state */}
-              {!currentImage && !newImage && (
+              {existingImages.length + newImages.length === 0 && (
                 <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
                   <Upload className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                  <p className="text-gray-500">No image uploaded. Please add a product image.</p>
+                  <p className="text-gray-500">No images. Please add at least one product image.</p>
                 </div>
               )}
             </div>

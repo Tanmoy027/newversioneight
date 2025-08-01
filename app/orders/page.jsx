@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Image from 'next/image'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -20,8 +21,44 @@ export default function OrdersPage() {
   }, [user, authLoading])
 
   const fetchOrders = async () => {
+    setLoading(true);
     try {
-      const { data, error } = await supabase
+      console.log("Fetching orders for user:", user?.id);
+      if (!user?.id) {
+        console.log("No user ID available, skipping fetch");
+        setLoading(false);
+        return;
+      }
+
+      // Try RPC function first (if available)
+      let { data: rpcOrders, error: rpcError } = await supabase
+        .rpc('get_user_orders_with_details', { user_id_param: user.id });
+
+      if (!rpcError && rpcOrders && rpcOrders.length > 0) {
+        console.log("Successfully fetched orders via RPC", rpcOrders);
+        // Transform the data to match the expected format
+        const formattedOrders = rpcOrders.map(order => ({
+          ...order,
+          order_items: order.items ? order.items.map(item => ({
+            id: item.id,
+            product_id: item.product_id,
+            quantity: item.quantity,
+            price: item.price,
+            products: {
+              name: item.product_name,
+              image_url: item.product_image
+            }
+          })) : []
+        }));
+        setOrders(formattedOrders);
+        setLoading(false);
+        return;
+      } else if (rpcError) {
+        console.log("RPC query failed, falling back to detailed query:", rpcError);
+      }
+
+      // Try detailed query next
+      let { data: detailedOrders, error: detailedError } = await supabase
         .from('orders')
         .select(`
           *,
@@ -29,19 +66,89 @@ export default function OrdersPage() {
             *,
             products (
               name,
-              image_url
+              image_url,
+              image_urls
             )
           )
         `)
         .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
+        .order('created_at', { ascending: false });
 
-      if (error) throw error
-      setOrders(data || [])
+      if (detailedError) {
+        console.error("Detailed query failed:", detailedError);
+        
+        // Try simpler query
+        let { data: simpleOrders, error: simpleError } = await supabase
+          .from('orders')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false });
+
+        if (simpleError) {
+          console.error("Simple query failed:", simpleError);
+          
+          // Last resort: try direct table access
+          let { data: directOrders, error: directError } = await supabase
+            .from('orders')
+            .select()
+            .eq('user_id', user.id);
+            
+          if (directError || !directOrders) {
+            console.error("All query methods failed:", directError);
+            setOrders([]);
+            setLoading(false);
+            return;
+          }
+          
+          setOrders(directOrders.map(order => ({ ...order, order_items: [] })));
+          setLoading(false);
+          return;
+        }
+
+        // If we got simple orders, fetch items separately
+        if (simpleOrders && simpleOrders.length > 0) {
+          const ordersWithItems = await Promise.all(
+            simpleOrders.map(async (order) => {
+              const { data: items, error: itemsError } = await supabase
+                .from('order_items')
+                .select(`
+                  *,
+                  products (
+                    name,
+                    image_url,
+                    image_urls
+                  )
+                `)
+                .eq('order_id', order.id);
+
+              if (itemsError) {
+                console.error(`Failed to fetch items for order ${order.id}:`, itemsError);
+                return { ...order, order_items: [] };
+              }
+
+              return { ...order, order_items: items || [] };
+            })
+          );
+
+          setOrders(ordersWithItems);
+          setLoading(false);
+          return;
+        }
+      } else if (detailedOrders) {
+        // Detailed query succeeded
+        setOrders(detailedOrders);
+        setLoading(false);
+        return;
+      }
+
+      // If we get here, no orders were found
+      console.log("No orders found for user");
+      setOrders([]);
+      setLoading(false);
     } catch (error) {
-      console.error('Error fetching orders:', error)
-    } finally {
-      setLoading(false)
+      console.error("Error fetching orders:", error);
+      setOrders([]);
+      setLoading(false);
     }
   }
 
@@ -103,10 +210,10 @@ export default function OrdersPage() {
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-lg">
-                      Order #{order.id.slice(0, 8)}
+                      Order #{order.id ? order.id.slice(0, 8) : 'Unknown'}
                     </CardTitle>
-                    <Badge className={getStatusColor(order.status)}>
-                      {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
+                    <Badge className={getStatusColor(order.status || 'pending')}>
+                      {order.status ? order.status.charAt(0).toUpperCase() + order.status.slice(1) : 'Pending'}
                     </Badge>
                   </div>
                 </CardHeader>
@@ -115,39 +222,44 @@ export default function OrdersPage() {
                     <div className="flex items-center space-x-2">
                       <Calendar className="h-4 w-4 text-gray-500" />
                       <span className="text-sm text-gray-600">
-                        {new Date(order.created_at).toLocaleDateString()}
+                        {order.created_at ? new Date(order.created_at).toLocaleDateString() : 'Date not available'}
                       </span>
                     </div>
                     <div className="flex items-center space-x-2">
                       <DollarSign className="h-4 w-4 text-gray-500" />
                       <span className="text-sm text-gray-600">
-                        ৳{order.total_amount.toFixed(2)}
+                        ৳{(order.total_amount || 0).toFixed(2)}
                       </span>
                     </div>
                     <div className="flex items-center space-x-2">
                       <MapPin className="h-4 w-4 text-gray-500" />
                       <span className="text-sm text-gray-600">
-                        {order.shipping_address.slice(0, 30)}...
+                        {order.shipping_address ? `${order.shipping_address.slice(0, 30)}...` : 'Address not available'}
                       </span>
                     </div>
                   </div>
 
                   <div className="space-y-3">
                     <h4 className="font-medium text-gray-900">Items:</h4>
-                    {order.order_items.map((item) => (
-                      <div key={item.id} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-                        <div className="w-12 h-12 bg-gray-200 rounded-lg flex items-center justify-center">
-                          <Package className="h-6 w-6 text-gray-500" />
+                    {(order.order_items || []).map((item, index) => (
+                      <div key={item.id || `item-${index}`} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
+                        <div className="relative w-12 h-12 rounded-lg overflow-hidden">
+                          <Image
+                            src={item.products?.image_urls?.[0] || item.products?.image_url || '/placeholder-furniture.jpg'}
+                            alt={item.products?.name || 'Product'}
+                            fill
+                            className="object-cover"
+                          />
                         </div>
                         <div className="flex-1">
-                          <p className="font-medium">{item.products.name}</p>
+                          <p className="font-medium">{item.products?.name || 'Product'}</p>
                           <p className="text-sm text-gray-600">
-                            Quantity: {item.quantity} × ৳{item.price.toFixed(2)}
+                            Quantity: {item.quantity || 1} × ৳{(item.price || 0).toFixed(2)}
                           </p>
                         </div>
                         <div className="text-right">
                           <p className="font-medium">
-                            ৳{(item.quantity * item.price).toFixed(2)}
+                            ৳{((item.quantity || 1) * (item.price || 0)).toFixed(2)}
                           </p>
                         </div>
                       </div>

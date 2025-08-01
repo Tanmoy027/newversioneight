@@ -1,15 +1,11 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 
 export default function TrendyProducts({ products = [] }) {
-  const [currentSlide, setCurrentSlide] = useState(0);
-  const productsPerPage = 4;
-  
   // If no products, show placeholder products
-  const displayProducts = products.length > 0 ? products.slice(0, 8) : [
+  const displayProducts = products.length > 0 ? products : [
     {
       id: 1,
       name: "Modern Sofa",
@@ -40,21 +36,8 @@ export default function TrendyProducts({ products = [] }) {
     }
   ];
 
-  const totalSlides = Math.ceil(displayProducts.length / productsPerPage);
-
-  const nextSlide = () => {
-    setCurrentSlide((prev) => (prev + 1) % totalSlides);
-  };
-
-  const prevSlide = () => {
-    setCurrentSlide((prev) => (prev - 1 + totalSlides) % totalSlides);
-  };
-
-  const getCurrentProducts = () => {
-    const start = currentSlide * productsPerPage;
-    const end = start + productsPerPage;
-    return displayProducts.slice(start, end);
-  };
+  // Display up to 8 products
+  const displayedProducts = displayProducts.slice(0, 8);
 
   return (
     <section className="py-8 md:py-16 bg-white">
@@ -70,11 +53,11 @@ export default function TrendyProducts({ products = [] }) {
 
         <div className="relative">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {getCurrentProducts().map((product) => (
+            {displayedProducts.map((product) => (
               <div key={product.id} className="group">
                 <div className="relative overflow-hidden rounded-lg bg-gray-100 aspect-square">
                   <Image
-                    src={product.image_url}
+                    src={(product.image_urls && product.image_urls.length > 0 ? product.image_urls[0] : product.image_url) || '/placeholder.jpg'}
                     alt={product.name}
                     fill
                     className="object-cover group-hover:scale-105 transition-transform duration-300"
@@ -103,38 +86,7 @@ export default function TrendyProducts({ products = [] }) {
             ))}
           </div>
 
-          {/* Navigation buttons for slides */}
-          {totalSlides > 1 && (
-            <div className="flex justify-center mt-6 space-x-2">
-              <button
-                onClick={prevSlide}
-                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors"
-              >
-                Previous
-              </button>
-              <button
-                onClick={nextSlide}
-                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors"
-              >
-                Next
-              </button>
-            </div>
-          )}
-
-          {/* Slide indicators */}
-          {totalSlides > 1 && (
-            <div className="flex justify-center mt-4 space-x-2">
-              {Array.from({ length: totalSlides }).map((_, index) => (
-                <button
-                  key={index}
-                  onClick={() => setCurrentSlide(index)}
-                  className={`w-2 h-2 rounded-full transition-colors ${
-                    index === currentSlide ? "bg-gray-800" : "bg-gray-300"
-                  }`}
-                />
-              ))}
-            </div>
-          )}
+          {/* No navigation buttons as requested */}
         </div>
 
         <div className="text-center mt-8">

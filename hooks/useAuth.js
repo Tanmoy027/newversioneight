@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
+import { supabase, ensureUserProfile } from '@/lib/supabase'
 
 export function useAuth() {
   const [user, setUser] = useState(null)
@@ -37,9 +37,18 @@ export function useAuth() {
 
   const fetchProfile = async (userId) => {
     try {
+      // First ensure the profile exists
+      const user = await supabase.auth.getUser()
+      if (user.data.user) {
+        const profileExists = await ensureUserProfile(user.data.user)
+        if (!profileExists) {
+          console.error('Failed to ensure user profile exists')
+        }
+      }
+      
       const { data, error } = await supabase
         .from('profiles')
-        .select('*')
+        .select('full_name, is_admin, phone, address')
         .eq('id', userId)
         .single()
 
@@ -93,6 +102,13 @@ export function useAuth() {
     return { error }
   }
 
+  const refreshUser = async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    setUser(session?.user ?? null)
+    if (session?.user) {
+      await fetchProfile(session.user.id)
+    }
+  }
   return {
     user,
     profile,
@@ -100,6 +116,7 @@ export function useAuth() {
     signIn,
     signUp,
     signOut,
+    refreshUser,
     isAdmin: profile?.is_admin ?? false,
   }
 }

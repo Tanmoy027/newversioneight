@@ -124,61 +124,84 @@ export async function PUT(request, { params }) {
       }
     }
 
-    // Handle single image upload/update (your schema only supports one image_url)
-    const imageFile = formData.get("image") || formData.get("image_0")
+    // Fetch existing product to get current image_urls
+    const { data: existingProduct, error: fetchError } = await supabaseAdmin
+      .from("products")
+      .select("image_urls")
+      .eq("id", id)
+      .single()
 
-    if (imageFile && imageFile.size > 0) {
-      const fileName = `${Date.now()}-${imageFile.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`
+    if (fetchError) {
+      console.error("Fetch error:", fetchError)
+      return Response.json(
+        {
+          success: false,
+          error: `Failed to fetch existing product: ${fetchError.message}`,
+        },
+        { status: 500 },
+      )
+    }
 
-      try {
-        // Upload to Supabase Storage
-        const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
-          .from("productimage")
-          .upload(fileName, imageFile, {
-            cacheControl: "3600",
-            upsert: false,
-          })
+    let imageUrls = existingProduct.image_urls || []
 
-        if (uploadError) {
-          console.error("Upload error:", uploadError)
+    // Handle deletions
+    const deleteImages = formData.getAll("delete_image")
+    imageUrls = imageUrls.filter(url => !deleteImages.includes(url))
+
+    // Handle new uploads (up to 4 total)
+    const newImageUrls = []
+    for (let i = 0; i < 4; i++) {
+      const imageFile = formData.get(`image_${i}`)
+      if (imageFile && imageFile.size > 0 && imageUrls.length + newImageUrls.length < 4) {
+        const fileName = `${Date.now()}-${i}-${imageFile.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`
+
+        try {
+          // Upload to Supabase Storage
+          const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
+            .from("productimage")
+            .upload(fileName, imageFile, {
+              cacheControl: "3600",
+              upsert: false,
+            })
+
+          if (uploadError) {
+            console.error("Upload error:", uploadError)
+            return Response.json(
+              {
+                success: false,
+                error: `Failed to upload image ${i}: ${uploadError.message}`,
+              },
+              { status: 500 },
+            )
+          }
+
+          // Get public URL
+          const {
+            data: { publicUrl },
+          } = supabaseAdmin.storage.from("productimage").getPublicUrl(fileName)
+
+          newImageUrls.push(publicUrl)
+        } catch (uploadError) {
+          console.error(`Image ${i} upload error:`, uploadError)
           return Response.json(
             {
               success: false,
-              error: `Failed to upload image: ${uploadError.message}`,
+              error: `Failed to upload image ${i}`,
             },
             { status: 500 },
           )
         }
-
-        // Get public URL
-        const {
-          data: { publicUrl },
-        } = supabaseAdmin.storage.from("productimage").getPublicUrl(fileName)
-
-        productData.image_url = publicUrl
-      } catch (uploadError) {
-        console.error("Image upload error:", uploadError)
-        return Response.json(
-          {
-            success: false,
-            error: "Failed to upload image",
-          },
-          { status: 500 },
-        )
       }
-    } else {
-      // Keep existing image or use provided URL
-      const imageUrl = formData.get("image_url")
-      if (imageUrl) {
-        productData.image_url = imageUrl
-      }
-      // If no new image provided, don't update image_url (keep existing)
     }
+
+    // Combine existing and new
+    imageUrls = [...imageUrls, ...newImageUrls]
+    productData.image_urls = imageUrls
 
     // Update product in database
     const { data, error } = await supabaseAdmin
       .from("products")
-      .update(productData)
+      .update({ ...productData, image_urls: productData.image_urls || [] })
       .eq("id", id)
       .select(`
         *,

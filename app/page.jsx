@@ -28,7 +28,6 @@ export default async function Home() {
     ...product,
     price: product.price || 0,
     discount_price: product.discount_price || null,
-    image_url: product.image_url || '/placeholder.jpg',
     name: product.name || 'Product',
     id: product.id || `temp-${Math.random().toString(36).substring(7)}`,
   }));

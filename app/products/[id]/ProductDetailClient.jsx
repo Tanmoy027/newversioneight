@@ -13,6 +13,7 @@ import { toast } from 'sonner'
 
 export default function ProductDetailClient({ product }) {
   const [quantity, setQuantity] = useState(1)
+  const [currentImage, setCurrentImage] = useState(product.primary_image)
   const { addToCart } = useCart()
   const { user } = useAuth()
 
@@ -37,7 +38,7 @@ export default function ProductDetailClient({ product }) {
       id: product.id,
       name: product.name,
       price: product.price,
-      image_url: product.image_url
+      image_url: product.primary_image
     }
     
     // Add the product once, then update quantity if needed
@@ -65,19 +66,42 @@ export default function ProductDetailClient({ product }) {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
           {/* Product Image */}
-          <div className="relative aspect-square overflow-hidden rounded-lg bg-white shadow-sm">
-            <Image
-              src={product.image_url}
-              alt={product.name}
-              fill
-              className="object-cover"
-              priority
-              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-            />
-            {product.is_featured && (
-              <Badge className="absolute top-4 left-4 bg-amber-600 hover:bg-amber-700">
-                Featured
-              </Badge>
+          <div className="space-y-4">
+            <div className="relative aspect-square overflow-hidden rounded-lg bg-white shadow-sm">
+              <Image
+                src={currentImage}
+                alt={product.name}
+                fill
+                className="object-cover"
+                priority
+                sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+              />
+              {product.is_featured && (
+                <Badge className="absolute top-4 left-4 bg-amber-600 hover:bg-amber-700">
+                  Featured
+                </Badge>
+              )}
+            </div>
+            
+            {/* Additional Images */}
+            {product.image_urls && product.image_urls.length > 1 && (
+              <div className="grid grid-cols-4 gap-2">
+                {product.image_urls.map((imgUrl, index) => (
+                  <div 
+                    key={index} 
+                    className={`relative aspect-square overflow-hidden rounded-lg cursor-pointer border-2 ${imgUrl === currentImage ? 'border-amber-500' : 'border-transparent'}`}
+                    onClick={() => setCurrentImage(imgUrl)}
+                  >
+                    <Image
+                      src={imgUrl}
+                      alt={`${product.name} - view ${index + 1}`}
+                      fill
+                      className="object-cover"
+                      sizes="(max-width: 768px) 25vw, 100px"
+                    />
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 

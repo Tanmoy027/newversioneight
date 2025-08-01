@@ -37,7 +37,7 @@ async function getProduct(id) {
       description: data.description || 'No description available.',
       price: data.price || 0,
       stock: data.stock || 0,
-      image_url: data.image_url || '/placeholder-furniture.jpg',
+      image_urls: data.image_urls || [],
       is_featured: data.is_featured || false,
       category_id: data.category_id,
       created_at: data.created_at,
@@ -66,6 +66,7 @@ export default async function ProductDetailPage({ params }) {
 
   // Fetch product server-side - always reliable
   const product = await getProduct(id)
+  product.primary_image = product.image_urls?.[0] || '/placeholder-furniture.jpg';
 
   if (!product) {
     console.log('Server: Product not found for ID:', id)

@@ -9,7 +9,7 @@ async function getNewArrivals() {
     const { data, error } = await supabase
       .from("products")
       .select("*")
-      .eq("in_stock", true)
+      .gt("stock", 0) // Check if stock is greater than 0
       .order("created_at", { ascending: false })
       .limit(20) // Show last 20 products
 

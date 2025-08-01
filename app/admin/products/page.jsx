@@ -213,7 +213,7 @@ export default function AdminProductsPage() {
           <Card key={product.id} className="overflow-hidden">
             <div className="aspect-square relative">
               <img
-                src={product.image_url || "/placeholder.svg?height=200&width=200"}
+                src={product.image_urls?.[0] || "/placeholder.svg?height=200&width=200"}
                 alt={product.name}
                 className="w-full h-full object-cover"
               />

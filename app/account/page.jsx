@@ -11,33 +11,48 @@ import { Badge } from '@/components/ui/badge'
 import { useAuth } from '@/hooks/useAuth'
 import { User, Mail, Calendar, ShoppingBag, LogOut, Edit, Save, X } from 'lucide-react'
 import { toast } from 'sonner'
+import { supabase, safeQuery, ensureUserProfile } from '@/lib/supabase'
 
 export default function AccountPage() {
-  const { user, signOut, loading } = useAuth()
+  const { user, signOut, loading, refreshUser } = useAuth()
   const router = useRouter()
   const [isEditing, setIsEditing] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
-  const [profileData, setProfileData] = useState({
-    full_name: '',
-    email: '',
-    phone: '',
-    address: ''
-  })
+const [isSaving, setIsSaving] = useState(false)
+const [profileData, setProfileData] = useState({
+  full_name: '',
+  email: '',
+  phone: '',
+  address: ''
+})
 
   useEffect(() => {
-    if (!loading && !user) {
-      router.push('/auth')
-      return
-    }
+  if (!loading && !user) {
+    router.push('/auth')
+    return
+  }
 
-    // Initialize profile data from user
-    setProfileData({
-      full_name: user?.user_metadata?.full_name || user?.email?.split('@')[0] || '',
-      email: user?.email || '',
-      phone: user?.user_metadata?.phone || '',
-      address: user?.user_metadata?.address || ''
-    })
-  }, [user, router, loading])
+  const fetchProfile = async () => {
+    try {
+      const { data, error } = await safeQuery(async () => 
+        supabase.from('profiles').select('full_name, email, phone, address').eq('id', user.id).single()
+      )
+      if (error) throw error
+      if (data) {
+        setProfileData({
+          full_name: data.full_name || user?.email?.split('@')[0] || '',
+          email: data.email || user?.email || '',
+          phone: data.phone || '',
+          address: data.address || ''
+        })
+      }
+    } catch (error) {
+      console.error('Error fetching profile:', error)
+      toast.error('Failed to load profile data')
+    }
+  }
+
+  if (user) fetchProfile()
+}, [user, router, loading])
 
   const handleLogout = async () => {
     try {
@@ -57,17 +72,55 @@ export default function AccountPage() {
   const handleSaveProfile = async () => {
     try {
       setIsSaving(true)
-      // Here you would typically update the user profile
-      // For now, we'll just simulate a save
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      console.log('Starting profile update...')
+      
+      // Ensure user profile exists
+console.log('Ensuring user profile exists...')
+let profileExists
+try {
+  profileExists = await safeQuery(async () => await ensureUserProfile(user))
+} catch (error) {
+  throw new Error('Failed to ensure user profile: ' + error.message)
+}
+if (!profileExists) {
+  throw new Error('Failed to create or verify user profile')
+}
+console.log('User profile verified')
+      
+      
+      
+      // Update profiles table
+console.log('Updating profiles table...')
+const { error: profileUpdateError } = await safeQuery(async () => 
+  supabase
+    .from('profiles')
+    .update({ 
+      full_name: profileData.full_name,
+      phone: profileData.phone,
+      address: profileData.address
+    })
+    .eq('id', user.id)
+)
+
+if (profileUpdateError) {
+  console.error('Profile update error:', profileUpdateError)
+  throw new Error(`Failed to update profile: ${profileUpdateError.message}`)
+}
+console.log('Profiles update successful')
+      
+      // Refresh user data
+console.log('Refreshing user data...')
+await refreshUser()
+console.log('User data refreshed')
       
       toast.success('Profile updated successfully')
       setIsEditing(false)
     } catch (error) {
-      toast.error('Error updating profile')
       console.error('Profile update error:', error)
+      toast.error(error.message || 'Error updating profile')
     } finally {
       setIsSaving(false)
+      console.log('Profile save process completed')
     }
   }
 
@@ -143,8 +196,10 @@ export default function AccountPage() {
                       disabled={isSaving}
                       className="gap-2"
                     >
-                      <Save className="h-4 w-4" />
-                      Save
+                      {isSaving ? 'Saving...' : <>
+                        <Save className="h-4 w-4" />
+                        Save
+                      </>}
                     </Button>
                   </div>
                 )}

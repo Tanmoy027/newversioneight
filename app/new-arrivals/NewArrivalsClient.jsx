@@ -14,7 +14,7 @@ export default function NewArrivalsClient({ products }) {
         <div key={product.id} className="bg-white rounded-lg shadow-sm overflow-hidden group hover:shadow-md transition-shadow">
           <div className="relative overflow-hidden">
             <Image
-              src={product.image_url || "/placeholder.svg?height=300&width=400"}
+              src={(product.image_urls && product.image_urls.length > 0 ? product.image_urls[0] : product.image_url) || "/placeholder.svg?height=300&width=400"}
               alt={product.name}
               width={400}
               height={300}

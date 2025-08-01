@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
@@ -9,14 +9,37 @@ import { Textarea } from '@/components/ui/textarea'
 import { Trash2, Minus, Plus, ShoppingBag } from 'lucide-react'
 import { useCart } from '@/lib/cart-context'
 import { useAuth } from '@/hooks/useAuth'
-import { supabase } from '@/lib/supabase'
+import { supabase, safeQuery, ensureUserProfile } from '@/lib/supabase'
 import { toast } from 'sonner'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+
 
 export default function CartPage() {
   const { cartItems, updateQuantity, removeFromCart, clearCart, getCartTotal, getCartItemsCount } = useCart()
   const { user } = useAuth()
   const [isLoading, setIsLoading] = useState(false)
-  const [shippingAddress, setShippingAddress] = useState('')
+const [shippingAddress, setShippingAddress] = useState('')
+const [phone, setPhone] = useState('')
+
+useEffect(() => {
+  const fetchProfile = async () => {
+    try {
+      const { data, error } = await safeQuery(async () => 
+        supabase.from('profiles').select('phone, address').eq('id', user.id).single()
+      )
+      if (error) throw error;
+      if (data) {
+        setPhone(data.phone || '')
+        setShippingAddress(data.address || '')
+      }
+    } catch (error) {
+      console.error('Error fetching profile:', error)
+      toast.error('Failed to load profile data')
+    }
+  }
+  if (user) fetchProfile()
+}, [user])
 
   const handleCheckout = async () => {
     if (!user) {
@@ -33,37 +56,78 @@ export default function CartPage() {
       toast.error('Please enter your shipping address')
       return
     }
+    if (!phone.trim()) {
+      toast.error('Please enter your phone number')
+      return
+    }
 
     setIsLoading(true)
 
     try {
-      // Create order
-      const { data: order, error: orderError } = await supabase
-        .from('orders')
-        .insert({
-          user_id: user.id,
-          total_amount: getCartTotal(),
-          shipping_address: shippingAddress,
-          status: 'pending'
-        })
-        .select()
-        .single()
+      // Ensure user profile exists
+console.log('Ensuring user profile exists...')
+let profileExists;
+try {
+  profileExists = await safeQuery(async () => await ensureUserProfile(user))
+} catch (error) {
+  throw new Error('Failed to ensure user profile: ' + error.message)
+}
+if (!profileExists) {
+  throw new Error('Failed to create or verify user profile')
+}
+console.log('User profile verified')
 
-      if (orderError) throw orderError
+      // Update user profile with phone and address
+console.log('Updating profile...')
+const { error: profileUpdateError } = await safeQuery(async () => 
+  supabase.from('profiles').update({ phone, address: shippingAddress }).eq('id', user.id)
+)
+if (profileUpdateError) {
+  console.error('Profile update error:', profileUpdateError)
+  throw new Error(`Failed to update profile: ${profileUpdateError.message}`)
+}
+console.log('Profile updated successfully')
+      
+      // Create order
+console.log('Creating order...')
+const { data: order, error: orderError } = await safeQuery(async () => 
+  supabase
+    .from('orders')
+    .insert({
+      user_id: user.id,
+      total_amount: getCartTotal(),
+      shipping_address: shippingAddress,
+      status: 'processing'
+    })
+    .select()
+    .single()
+)
+
+if (orderError) {
+  console.error('Order creation error:', orderError)
+  throw new Error(`Failed to create order: ${orderError.message}`)
+}
+console.log('Order created:', order.id)
 
       // Create order items
-      const orderItems = cartItems.map(item => ({
-        order_id: order.id,
-        product_id: item.id,
-        quantity: item.quantity,
-        price: item.price
-      }))
+const orderItems = cartItems.map(item => ({
+  order_id: order.id,
+  product_id: item.id,
+  quantity: item.quantity,
+  price: item.price
+}))
+console.log('Creating order items...')
+const { error: itemsError } = await safeQuery(async () => 
+  supabase
+    .from('order_items')
+    .insert(orderItems)
+)
 
-      const { error: itemsError } = await supabase
-        .from('order_items')
-        .insert(orderItems)
-
-      if (itemsError) throw itemsError
+if (itemsError) {
+  console.error('Order items creation error:', itemsError)
+  throw new Error(`Failed to create order items: ${itemsError.message}`)
+}
+console.log('Order items created')
 
       // Clear cart and show success
       clearCart()
@@ -73,9 +137,17 @@ export default function CartPage() {
       window.location.href = '/orders'
     } catch (error) {
       console.error('Error placing order:', error)
-      toast.error('Failed to place order. Please try again.')
+      console.error('Error details:', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+        stack: error.stack
+      })
+      toast.error(`Failed to place order: ${error.message || 'Unknown error'}. Please check console for details.`)
     } finally {
       setIsLoading(false)
+      console.log('Checkout process completed')
     }
   }
 
@@ -127,7 +199,7 @@ export default function CartPage() {
                   <div className="flex items-center space-x-4">
                     <div className="relative w-20 h-20 rounded-lg overflow-hidden">
                       <Image
-                        src={item.image_url || '/placeholder-furniture.jpg'}
+                        src={item.primary_image || item.image_url || '/placeholder-furniture.jpg'}
                         alt={item.name}
                         fill
                         className="object-cover"
@@ -198,16 +270,26 @@ export default function CartPage() {
                 </div>
                 
                 <div className="space-y-4 pt-4 border-t">
-                  <div>
-                    <label className="block text-sm font-medium mb-2">
-                      Shipping Address *
-                    </label>
-                    <Textarea
-                      value={shippingAddress}
-                      onChange={(e) => setShippingAddress(e.target.value)}
-                      placeholder="Enter your complete shipping address..."
-                      className="min-h-[100px]"
-                    />
+                  <div className="space-y-4">
+                    <div>
+                      <Label htmlFor="address">Shipping Address *</Label>
+                      <Textarea
+                        id="address"
+                        value={shippingAddress}
+                        onChange={(e) => setShippingAddress(e.target.value)}
+                        placeholder="Enter your complete shipping address..."
+                        className="min-h-[100px]"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="phone">Phone Number *</Label>
+                      <Input
+                        id="phone"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        placeholder="Enter your phone number"
+                      />
+                    </div>
                   </div>
                   
                   <Button
@@ -221,6 +303,9 @@ export default function CartPage() {
                 </div>
               </CardContent>
             </Card>
+            
+            {/* Debug Component */}
+           
           </div>
         </div>
       </div>

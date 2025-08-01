@@ -38,7 +38,7 @@ export default function ProductsClient({ initialProducts, categories, initialCat
       <div className="bg-white rounded-lg shadow-sm overflow-hidden hover:shadow-md transition-shadow">
         <div className="relative aspect-square overflow-hidden">
           <Image
-            src={product.image_url}
+            src={product.primary_image || product.image_url || '/placeholder-furniture.jpg'}
             alt={product.name}
             fill
             className="object-cover group-hover:scale-105 transition-transform duration-300"
