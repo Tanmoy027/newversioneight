@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { LoadingPage } from '@/components/ui/loading'
 import { Package, Users, ShoppingCart, DollarSign, TrendingUp, Clock } from 'lucide-react'
+import { useToast } from '@/hooks/use-toast'
 
 export default function AdminDashboard() {
   const { user, profile, loading } = useAuth()
@@ -17,7 +18,10 @@ export default function AdminDashboard() {
     totalRevenue: 0,
     pendingOrders: 0
   })
+  const [recentOrders, setRecentOrders] = useState([])
   const [statsLoading, setStatsLoading] = useState(true)
+  const [dashboardLoading, setDashboardLoading] = useState(true)
+  const { toast } = useToast()
 
   useEffect(() => {
     if (!loading && (!user || !profile?.is_admin)) {
@@ -65,12 +69,45 @@ export default function AdminDashboard() {
       })
     } catch (error) {
       console.error('Error fetching stats:', error)
+      toast({ variant: "destructive", description: "Failed to load stats" })
     } finally {
       setStatsLoading(false)
     }
   }
 
-  if (loading || statsLoading) {
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      try {
+        setDashboardLoading(true)
+
+        // Fetch recent orders
+        const { data: recentOrdersData } = await supabase
+          .from("orders")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(5)
+        setRecentOrders(recentOrdersData || [])
+
+        setDashboardLoading(false)
+      } catch (error) {
+        console.error("Error fetching dashboard data:", error)
+        setDashboardLoading(false)
+        toast({ variant: "destructive", description: "Failed to load dashboard data" })
+      }
+    }
+
+    const timeout = setTimeout(() => {
+      if (dashboardLoading) {
+        setDashboardLoading(false)
+        toast({ variant: "destructive", description: "Dashboard loading timeout - please refresh" })
+      }
+    }, 10000)
+
+    fetchDashboardData()
+    return () => clearTimeout(timeout)
+  }, [])
+
+  if (loading || statsLoading || dashboardLoading) {
     return <LoadingPage />
   }
 
@@ -79,97 +116,97 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div>
+    <div className="space-y-6 p-6">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
         <p className="text-gray-600 mt-2">Welcome back, {profile?.full_name || 'Admin'}</p>
       </div>
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Products</CardTitle>
-              <Package className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.totalProducts}</div>
-              <p className="text-xs text-muted-foreground">+2 from last week</p>
-            </CardContent>
-          </Card>
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Products</CardTitle>
+            <Package className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.totalProducts}</div>
+            <p className="text-xs text-muted-foreground">+2 from last week</p>
+          </CardContent>
+        </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
-              <ShoppingCart className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.totalOrders}</div>
-              <p className="text-xs text-muted-foreground">+12% from last month</p>
-            </CardContent>
-          </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
+            <ShoppingCart className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.totalOrders}</div>
+            <p className="text-xs text-muted-foreground">+12% from last month</p>
+          </CardContent>
+        </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">৳{stats.totalRevenue.toFixed(2)}</div>
-              <p className="text-xs text-muted-foreground">+8% from last month</p>
-            </CardContent>
-          </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
+            <DollarSign className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">৳{stats.totalRevenue.toFixed(2)}</div>
+            <p className="text-xs text-muted-foreground">+8% from last month</p>
+          </CardContent>
+        </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Pending Orders</CardTitle>
-              <Clock className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.pendingOrders}</div>
-              <p className="text-xs text-muted-foreground">Needs attention</p>
-            </CardContent>
-          </Card>
-        </div>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Pending Orders</CardTitle>
+            <Clock className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.pendingOrders}</div>
+            <p className="text-xs text-muted-foreground">Needs attention</p>
+          </CardContent>
+        </Card>
+      </div>
 
-        {/* Quick Actions */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <Card className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => router.push('/admin/products')}>
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <Package className="h-5 w-5" />
-                <span>Manage Products</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-gray-600">Add, edit, or remove products from your catalog</p>
-            </CardContent>
-          </Card>
+      {/* Quick Actions */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <Card className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => router.push('/admin/products')}>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <Package className="h-5 w-5" />
+              <span>Manage Products</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-gray-600">Add, edit, or remove products from your catalog</p>
+          </CardContent>
+        </Card>
 
-          <Card className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => router.push('/admin/orders')}>
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <ShoppingCart className="h-5 w-5" />
-                <span>Manage Orders</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-gray-600">View and update order statuses</p>
-            </CardContent>
-          </Card>
+        <Card className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => router.push('/admin/orders')}>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <ShoppingCart className="h-5 w-5" />
+              <span>Manage Orders</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-gray-600">View and update order statuses</p>
+          </CardContent>
+        </Card>
 
-          <Card className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => router.push('/admin/categories')}>
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <TrendingUp className="h-5 w-5" />
-                <span>Manage Categories</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-gray-600">Organize products into categories</p>
-            </CardContent>
-          </Card>
-        </div>
+        <Card className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => router.push('/admin/categories')}>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <TrendingUp className="h-5 w-5" />
+              <span>Manage Categories</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-gray-600">Organize products into categories</p>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }

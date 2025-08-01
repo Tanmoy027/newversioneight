@@ -20,10 +20,29 @@ export default function AdminProductsPage() {
     outOfStock: 0,
     lowStock: 0,
   })
+  const [currentPage, setCurrentPage] = useState(1)
+  const productsPerPage = 15
 
   useEffect(() => {
-    fetchProducts()
-    fetchStats()
+    const fetchData = async () => {
+      try {
+        setLoading(true)
+        await Promise.all([fetchProducts(), fetchStats()])
+      } catch (error) {
+        console.error('Error fetching data:', error)
+        toast.error('Failed to load products data')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    const timeout = setTimeout(() => {
+      setLoading(false)
+      toast.error('Products loading timeout - please refresh')
+    }, 10000)
+
+    fetchData()
+    return () => clearTimeout(timeout)
   }, [])
 
   const fetchProducts = async () => {
@@ -113,6 +132,11 @@ export default function AdminProductsPage() {
       product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (product.categories?.name && product.categories.name.toLowerCase().includes(searchQuery.toLowerCase())),
   )
+  const totalPages = Math.ceil(filteredProducts.length / productsPerPage)
+  const currentProducts = filteredProducts.slice(
+    (currentPage - 1) * productsPerPage,
+    currentPage * productsPerPage
+  )
 
   const formatPrice = (price) => {
     return new Intl.NumberFormat("en-BD", {
@@ -124,7 +148,7 @@ export default function AdminProductsPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
+      <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-amber-500"></div>
       </div>
     )
@@ -209,11 +233,11 @@ export default function AdminProductsPage() {
 
       {/* Products Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {filteredProducts.map((product) => (
+        {currentProducts.map((product) => (
           <Card key={product.id} className="overflow-hidden">
             <div className="aspect-square relative">
               <img
-                src={product.image_urls?.[0] || "/placeholder.svg?height=200&width=200"}
+                src={product.image_urls?.[0] || product.image_url || "/placeholder.svg?height=200&width=200"}
                 alt={product.name}
                 className="w-full h-full object-cover"
               />
@@ -273,7 +297,27 @@ export default function AdminProductsPage() {
           </Card>
         ))}
       </div>
-
+      {filteredProducts.length > 0 && totalPages > 1 && (
+        <div className="flex justify-center items-center space-x-2 mt-6">
+          <Button
+            variant="outline"
+            onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+            disabled={currentPage === 1}
+          >
+            Previous
+          </Button>
+          <span className="text-sm text-gray-600">
+            Page {currentPage} of {totalPages}
+          </span>
+          <Button
+            variant="outline"
+            onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+            disabled={currentPage === totalPages}
+          >
+            Next
+          </Button>
+        </div>
+      )}
       {filteredProducts.length === 0 && (
         <div className="text-center py-12">
           <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />

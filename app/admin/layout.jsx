@@ -35,21 +35,6 @@ const sidebarItems = [
     href: "/admin/orders",
     icon: ShoppingCart,
   },
-  {
-    title: "Customers",
-    href: "/admin/customers",
-    icon: Users,
-  },
-  {
-    title: "Analytics",
-    href: "/admin/analytics",
-    icon: BarChart3,
-  },
-  {
-    title: "Settings",
-    href: "/admin/settings",
-    icon: Settings,
-  },
 ]
 
 export default function AdminLayout({ children }) {
@@ -83,7 +68,13 @@ export default function AdminLayout({ children }) {
       }
     }
 
+    const timeout = setTimeout(() => {
+      setLoading(false)
+      toast.error("Loading timeout - please refresh the page")
+    }, 10000) // 10 second timeout
+
     checkAuth()
+    return () => clearTimeout(timeout)
   }, [user, profile, authLoading, isAdmin, router])
 
   const handleSignOut = async () => {

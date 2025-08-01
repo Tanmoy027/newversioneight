@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'; 
+import { supabase } from '@/lib/supabase';
 import Hero from "@/components/Hero"
 import FeaturesSection from "@/components/features-section"
 import TrendyProducts from "@/components/trendy-products"
@@ -13,11 +13,23 @@ export default async function Home() {
   let products = [];
   
   try {
-    const { data, error } = await supabase.from('products').select('*');
-    if (error) {
-      console.error("Supabase error:", error);
+    const { data: categories, error: catError } = await supabase
+      .from('categories')
+      .select('id')
+      .in('name', ['Center Table', 'Dining Table', 'Dining Chair']);
+    if (catError) {
+      console.error("Supabase category error:", catError);
     } else {
-      products = data || [];
+      const catIds = categories?.map(c => c.id) || [];
+      const { data, error } = await supabase
+        .from('products')
+        .select('*, categories(name)')
+        .in('category_id', catIds);
+      if (error) {
+        console.error("Supabase error:", error);
+      } else {
+        products = data || [];
+      }
     }
   } catch (err) {
     console.error("Failed to fetch products:", err);
@@ -37,7 +49,7 @@ export default async function Home() {
       <Hero />
       <FurnitureCategories /> 
     
-      <TrendyProducts products={products} />
+      {products.length > 0 && <TrendyProducts products={products} /> }
       <RoomShowcase />
         <ServicesSection />
       <AboutSection />

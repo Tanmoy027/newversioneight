@@ -1,44 +1,147 @@
-"use client";
-
-import Link from "next/link";
-import Image from "next/image";
-
+"use client"
+import { useRef, useState } from 'react';
+import Link from 'next/link';
+import Image from 'next/image';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 export default function TrendyProducts({ products = [] }) {
-  // If no products, show placeholder products
-  const displayProducts = products.length > 0 ? products : [
-    {
-      id: 1,
-      name: "Modern Sofa",
-      price: 899,
-      discount_price: 799,
-      image_url: "https://images.pexels.com/photos/1571463/pexels-photo-1571463.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1"
-    },
-    {
-      id: 2,
-      name: "Elegant Chair",
-      price: 299,
-      discount_price: null,
-      image_url: "https://images.pexels.com/photos/586316/pexels-photo-586316.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1"
-    },
-    {
-      id: 3,
-      name: "Coffee Table",
-      price: 449,
-      discount_price: 399,
-      image_url: "https://images.pexels.com/photos/1080696/pexels-photo-1080696.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1"
-    },
-    {
-      id: 4,
-      name: "Bookshelf",
-      price: 599,
-      discount_price: null,
-      image_url: "https://images.pexels.com/photos/1395967/pexels-photo-1395967.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1"
+  // Refs for scrollable containers
+  const centerTableScrollRef = useRef(null);
+  const diningScrollRef = useRef(null);
+  const diningChairScrollRef = useRef(null);
+  // Filter products by the 3 specific categories
+  const centerTables = products.filter(product => product.categories?.name === 'Center Table').slice(0, 4);
+  const dining = products.filter(product => product.categories?.name === 'Dining' || product.categories?.name === 'Dining Table' || product.categories?.name === 'Fine Dining Furniture').slice(0, 4);
+  const diningChairs = products.filter(product => product.categories?.name === 'Dining Chair').slice(0, 4);
+  // Create a placeholder image - use relative path instead of direct URL
+  const placeholderImage = "/placeholder.jpg";
+  // Scroll handlers
+  const scroll = (ref, direction) => {
+    if (ref.current) {
+      const scrollAmount = direction === 'left' ? -200 : 200;
+      ref.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
     }
-  ];
-
-  // Display up to 8 products
-  const displayedProducts = displayProducts.slice(0, 8);
-
+  };
+  // Custom Image component to handle loading errors consistently
+  function TrendyProductImage({ src, alt }) {
+    const [imgSrc, setImgSrc] = useState(src || placeholderImage);
+    return (
+      <Image
+        src={imgSrc}
+        alt={alt}
+        fill
+        sizes="100vw"
+        className="object-cover hover:scale-105 transition-transform duration-300"
+        onError={() => setImgSrc(placeholderImage)}
+        unoptimized={false}
+      />
+    );
+  }
+  // Function to render a product grid with category heading
+  const renderProductGrid = (products, categoryTitle, scrollRef, categoryLink) => {
+    // Don't render if no products
+    if (products.length === 0) return null;
+    return (
+      <div className="mb-8">
+        <div className="flex justify-between items-center mb-4">
+          <Link href={categoryLink} className="text-xl font-medium text-amber-600 hover:text-amber-700 transition-colors">
+            {categoryTitle}
+          </Link>
+          {/* Navigation arrows - only visible on mobile */}
+          <div className="flex md:hidden space-x-2">
+            <button
+              onClick={() => scroll(scrollRef, 'left')}
+              className="p-1 bg-amber-100 rounded-full hover:bg-amber-200"
+              aria-label="Scroll left"
+            >
+              <ChevronLeft size={20} className="text-amber-600" />
+            </button>
+            <button
+              onClick={() => scroll(scrollRef, 'right')}
+              className="p-1 bg-amber-100 rounded-full hover:bg-amber-200"
+              aria-label="Scroll right"
+            >
+              <ChevronRight size={20} className="text-amber-600" />
+            </button>
+          </div>
+        </div>
+        {/* Mobile: Horizontal scrollable container */}
+        <div
+          ref={scrollRef}
+          className="flex md:hidden overflow-x-auto gap-3 pb-4 scrollbar-hide"
+          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+        >
+          {products.map((product) => (
+            <div
+              key={`mobile-${product.id}`}
+              className="min-w-[200px] bg-white p-3 shadow-sm hover:shadow-md transition-shadow rounded-md"
+            >
+              <Link href={`/products/${product.id}`}>
+                <div className="relative h-40 mb-2 overflow-hidden rounded-md">
+                  <TrendyProductImage
+                    src={(product.image_urls && product.image_urls.length > 0 ? product.image_urls[0] : product.image_url) || placeholderImage}
+                    alt={product.name}
+                  />
+                  {product.discount_price && (
+                    <span className="absolute top-2 right-2 bg-amber-500 text-white px-2 py-1 text-xs rounded-md">
+                      SALE
+                    </span>
+                  )}
+                </div>
+                <h3 className="font-medium text-sm truncate">{product.name}</h3>
+                <div className="flex items-center mt-1 mb-1">
+                  <div className="flex text-amber-500 text-xs">★★★★★</div>
+                </div>
+                <div className="flex items-center">
+                  {product.discount_price ? (
+                    <>
+                      <span className="text-amber-600 font-bold text-sm">৳{product.discount_price}</span>
+                      <span className="ml-2 text-gray-400 line-through text-xs">৳{product.price}</span>
+                    </>
+                  ) : (
+                    <span className="text-gray-800 font-bold text-sm">৳{product.price}</span>
+                  )}
+                </div>
+              </Link>
+            </div>
+          ))}
+        </div>
+        {/* Desktop: Grid layout */}
+        <div className="hidden md:grid grid-cols-4 gap-4">
+          {products.map((product) => (
+            <div key={product.id} className="bg-white p-3 shadow-sm hover:shadow-md transition-shadow rounded-md">
+              <Link href={`/products/${product.id}`}>
+                <div className="relative h-40 mb-2 overflow-hidden rounded-md">
+                  <TrendyProductImage
+                    src={(product.image_urls && product.image_urls.length > 0 ? product.image_urls[0] : product.image_url) || placeholderImage}
+                    alt={product.name}
+                  />
+                  {product.discount_price && (
+                    <span className="absolute top-2 right-2 bg-amber-500 text-white px-2 py-1 text-xs rounded-md">
+                      SALE
+                    </span>
+                  )}
+                </div>
+                <h3 className="font-medium text-sm truncate">{product.name}</h3>
+                <div className="flex items-center mt-1 mb-1">
+                  <div className="flex text-amber-500 text-xs">★★★★★</div>
+                </div>
+                <div className="flex items-center">
+                  {product.discount_price ? (
+                    <>
+                      <span className="text-amber-600 font-bold text-sm">৳{product.discount_price}</span>
+                      <span className="ml-2 text-gray-400 line-through text-xs">৳{product.price}</span>
+                    </>
+                  ) : (
+                    <span className="text-gray-800 font-bold text-sm">৳{product.price}</span>
+                  )}
+                </div>
+              </Link>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
   return (
     <section className="py-8 md:py-16 bg-white">
       <div className="container mx-auto px-4">
@@ -46,57 +149,10 @@ export default function TrendyProducts({ products = [] }) {
           <h2 className="text-2xl md:text-3xl font-medium mb-4">
             TRENDY PRODUCTS
           </h2>
-          <p className="text-gray-600 max-w-2xl mx-auto">
-            Discover our most popular and stylish furniture pieces
-          </p>
         </div>
-
-        <div className="relative">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {displayedProducts.map((product) => (
-              <div key={product.id} className="group">
-                <div className="relative overflow-hidden rounded-lg bg-gray-100 aspect-square">
-                  <Image
-                    src={(product.image_urls && product.image_urls.length > 0 ? product.image_urls[0] : product.image_url) || '/placeholder.jpg'}
-                    alt={product.name}
-                    fill
-                    className="object-cover group-hover:scale-105 transition-transform duration-300"
-                  />
-                  {product.discount_price && (
-                    <div className="absolute top-2 left-2 bg-red-500 text-white px-2 py-1 text-xs rounded">
-                      Sale
-                    </div>
-                  )}
-                </div>
-                
-                <div className="mt-4 text-center">
-                  <h3 className="font-medium text-lg">{product.name}</h3>
-                  <div className="mt-2">
-                    {product.discount_price ? (
-                      <div className="flex items-center justify-center space-x-2">
-                        <span className="text-gray-500 line-through">৳{product.price}</span>
-                        <span className="text-red-600 font-bold">৳{product.discount_price}</span>
-                      </div>
-                    ) : (
-                      <span className="text-gray-900 font-bold">৳{product.price}</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* No navigation buttons as requested */}
-        </div>
-
-        <div className="text-center mt-8">
-          <Link 
-            href="/products" 
-            className="inline-block bg-gray-900 text-white px-8 py-3 rounded-lg hover:bg-gray-800 transition-colors"
-          >
-            View All Products
-          </Link>
-        </div>
+        {renderProductGrid(centerTables, 'Center Table', centerTableScrollRef, '/products?category=Center Table')}
+        {renderProductGrid(dining, 'Dining', diningScrollRef, '/products?category=Dining')}
+        {renderProductGrid(diningChairs, 'Dining Chair', diningChairScrollRef, '/products?category=Dining Chair')}
       </div>
     </section>
   );
