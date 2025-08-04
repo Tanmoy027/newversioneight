@@ -15,6 +15,7 @@ import {
   X,
   ExternalLink,
   LogOut,
+  MessageSquare,
 } from "lucide-react"
 import { useAuth } from "@/hooks/useAuth"
 import { toast } from "sonner"
@@ -34,6 +35,11 @@ const sidebarItems = [
     title: "Orders",
     href: "/admin/orders",
     icon: ShoppingCart,
+  },
+  {
+    title: "Reviews",
+    href: "/admin/reviews",
+    icon: MessageSquare,
   },
 ]
 

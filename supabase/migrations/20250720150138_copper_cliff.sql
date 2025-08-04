@@ -1,4 +1,4 @@
-i/*
+/*
   # EightHand Furniture Database Schema
 
   1. New Tables
@@ -262,27 +262,3 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-echo "# newversioneight" >> README.md
-git init
-git add README.md
-git commit -m "first commit"
-git branch -M development
-git remote add origin https://github.com/Tanmoy027/newversioneight.git
-git push -u origin development

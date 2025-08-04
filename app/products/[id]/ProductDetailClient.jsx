@@ -10,6 +10,7 @@ import { ShoppingCart, ArrowLeft, Star, Truck, Shield, RefreshCw } from 'lucide-
 import { useCart } from '@/lib/cart-context'
 import { useAuth } from '@/hooks/useAuth'
 import { toast } from 'sonner'
+import ProductReviews from '@/components/products/ProductReviews'
 
 export default function ProductDetailClient({ product }) {
   const [quantity, setQuantity] = useState(1)
@@ -229,6 +230,9 @@ export default function ProductDetailClient({ product }) {
             </div>
           </CardContent>
         </Card>
+
+        {/* Product Reviews */}
+        <ProductReviews productId={product.id} />
       </div>
     </div>
   )
