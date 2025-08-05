@@ -142,7 +142,7 @@ export default function ProductReviews({ productId }) {
         
         // Upload to review bucket as specified in your SQL
         const { data, error } = await supabase.storage
-          .from('review')
+          .from('productimage')
           .upload(fileName, file, {
             cacheControl: '3600',
             upsert: false
@@ -156,7 +156,7 @@ export default function ProductReviews({ productId }) {
         }
 
         const { data: { publicUrl } } = supabase.storage
-          .from('review')
+          .from('productimage')
           .getPublicUrl(fileName)
 
         uploadedUrls.push(publicUrl)
