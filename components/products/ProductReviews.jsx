@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from '@/components/ui/dialog'
 import { Star, MessageSquare, Camera, X, User } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase, safeQuery, ensureUserProfile } from '@/lib/supabase'
@@ -178,22 +178,33 @@ export default function ProductReviews({ productId }) {
   const handleSubmitReview = async (e) => {
     e.preventDefault()
     
+    console.log('=== REVIEW SUBMISSION DEBUG ===')
+    console.log('User:', user)
+    console.log('Rating:', rating)
+    console.log('Comment:', comment)
+    console.log('Title:', title)
+    console.log('Images:', reviewImages)
+    
     if (!user) {
+      console.log('ERROR: No user found')
       toast.error('Please sign in to submit a review')
       return
     }
 
     if (rating === 0) {
+      console.log('ERROR: No rating selected')
       toast.error('Please select a rating')
       return
     }
 
     if (!comment.trim()) {
+      console.log('ERROR: No comment provided')
       toast.error('Please write a review comment')
       return
     }
 
     setSubmitting(true)
+    console.log('Starting review submission process...')
 
     try {
       console.log('Starting review submission...')
