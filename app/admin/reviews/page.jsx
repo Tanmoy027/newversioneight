@@ -39,10 +39,12 @@ export default function AdminReviewsPage() {
       setLoading(true)
       console.log('Admin: Fetching all reviews...')
       
-      // Use the admin function to bypass RLS issues
+      // Use the correct function name from your schema
       let { data, error } = await safeQuery(async () => 
-        supabase.rpc('get_all_reviews_admin')
+        supabase.rpc('get_all_reviews_for_admin')
       )
+      
+      if (error) {
         console.warn('Admin function failed, trying direct query:', error)
         
         // Fallback to direct query
@@ -51,7 +53,7 @@ export default function AdminReviewsPage() {
             .from('reviews')
             .select(`
               *,
-              profiles!reviews_user_id_fkey (
+              profiles (
                 full_name,
                 email
               ),
@@ -76,6 +78,7 @@ export default function AdminReviewsPage() {
           product_name: review.products?.name || 'Unknown Product',
           product_image: review.products?.image_urls?.[0] || review.products?.image_url || '/placeholder.jpg'
         }))
+      }
       if (error) throw error
       
       console.log('Admin: Reviews fetched successfully:', data?.length || 0)

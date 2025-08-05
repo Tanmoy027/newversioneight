@@ -33,8 +33,8 @@ export default function ProductReviews({ productId }) {
     try {
       console.log('Fetching reviews for product:', productId)
       
-      // Try the function first
-      let { data, error } = await supabase.rpc('get_product_reviews', {
+      // Use the new function that matches your schema
+      let { data, error } = await supabase.rpc('get_product_reviews_public', {
         product_id_param: productId
       })
 
@@ -46,7 +46,7 @@ export default function ProductReviews({ productId }) {
           .from('reviews')
           .select(`
             *,
-            profiles!reviews_user_id_fkey (
+            profiles (
               full_name,
               email
             )
@@ -140,9 +140,9 @@ export default function ProductReviews({ productId }) {
         
         console.log('Uploading file:', fileName)
         
-        // Try to upload to productimage bucket (since it exists)
+        // Upload to review bucket as specified in your SQL
         const { data, error } = await supabase.storage
-          .from('productimage')
+          .from('review')
           .upload(fileName, file, {
             cacheControl: '3600',
             upsert: false
@@ -156,7 +156,7 @@ export default function ProductReviews({ productId }) {
         }
 
         const { data: { publicUrl } } = supabase.storage
-          .from('productimage')
+          .from('review')
           .getPublicUrl(fileName)
 
         uploadedUrls.push(publicUrl)
@@ -210,7 +210,12 @@ export default function ProductReviews({ productId }) {
       let imageUrls = []
       if (reviewImages.length > 0) {
         console.log('Uploading review images...')
-        imageUrls = await handleImageUpload(reviewImages)
+        try {
+          imageUrls = await handleImageUpload(reviewImages)
+        } catch (uploadError) {
+          console.warn('Image upload failed, continuing without images:', uploadError)
+          // Continue without images rather than failing the entire review
+        }
         console.log('Images uploaded:', imageUrls.length)
       }
 
