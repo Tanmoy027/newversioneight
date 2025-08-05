@@ -18,6 +18,8 @@ export default function ProductDetailClient({ product }) {
   const { addToCart } = useCart()
   const { user } = useAuth()
 
+  console.log("Auth user state:", !!user);
+
   const handleAddToCart = () => {
     if (!user) {
       toast.error('Please sign in to add items to cart')

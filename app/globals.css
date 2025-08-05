@@ -111,3 +111,12 @@ html.lenis {
     @apply bg-transparent hover:bg-white hover:text-gray-900 text-white font-medium border border-white rounded-md transition-all duration-200 inline-flex items-center justify-center;
   }
 }
+
+/* Add to your global CSS file */
+[data-radix-popper-content-wrapper] {
+  z-index: 9999 !important;
+}
+
+.dialog-overlay {
+  z-index: 9998 !important;
+}

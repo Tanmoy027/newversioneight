@@ -7,17 +7,18 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog'
 import { Star, MessageSquare, Camera, X, User } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
-import { supabase } from '@/lib/supabase'
+import { supabase, safeQuery, ensureUserProfile } from '@/lib/supabase'
 import { toast } from 'sonner'
 
 export default function ProductReviews({ productId }) {
+  console.log('ProductReviews component rendered with productId:', productId)
+  
   const [reviews, setReviews] = useState([])
   const [reviewStats, setReviewStats] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [dialogOpen, setDialogOpen] = useState(false)
+  const [showReviewModal, setShowReviewModal] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const { user } = useAuth()
 
@@ -28,20 +29,55 @@ export default function ProductReviews({ productId }) {
   const [reviewImages, setReviewImages] = useState([])
   const [uploadingImages, setUploadingImages] = useState(false)
 
+  console.log('=== COMPONENT STATE DEBUG ===')
+  console.log('User exists:', !!user)
+  console.log('User ID:', user?.id)
+  console.log('Show modal:', showReviewModal)
+  console.log('Reviews count:', reviews.length)
+  console.log('Loading:', loading)
+
   // Define fetch functions with useCallback to prevent unnecessary re-renders
   const fetchReviews = useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from('product_reviews_with_user')
-        .select('*')
-        .eq('product_id', productId)
-        .order('created_at', { ascending: false })
+      console.log('Fetching reviews for product:', productId)
+      
+      // Use the function that matches your schema
+      let { data, error } = await supabase.rpc('get_product_reviews_public', {
+        product_id_param: productId
+      })
 
       if (error) {
-        console.error('Error fetching reviews:', error)
-        toast.error(`Failed to load reviews: ${error.message || 'Unknown error'}`)
-        return
+        console.warn('Function query failed, trying direct query:', error)
+        
+        // Fallback to direct query
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('reviews')
+          .select(`
+            *,
+            profiles (
+              full_name,
+              email
+            )
+          `)
+          .eq('product_id', productId)
+          .eq('is_approved', true)
+          .order('created_at', { ascending: false })
+        
+        if (fallbackError) {
+          console.error('Error fetching reviews:', fallbackError)
+          toast.error(`Failed to load reviews: ${fallbackError.message || 'Unknown error'}`)
+          return
+        }
+        
+        // Transform fallback data
+        data = fallbackData.map(review => ({
+          ...review,
+          user_name: review.profiles?.full_name || 'Anonymous User',
+          user_email: review.profiles?.email || null
+        }))
       }
+      
+      console.log('Reviews fetched successfully:', data?.length || 0)
       setReviews(data || [])
     } catch (error) {
       console.error('Error fetching reviews:', error.message || error)
@@ -53,17 +89,39 @@ export default function ProductReviews({ productId }) {
 
   const fetchReviewStats = useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from('product_review_stats')
-        .select('*')
+      console.log('Fetching review stats for product:', productId)
+      
+      // Calculate stats manually since view might not exist
+      const { data: reviewData, error } = await supabase
+        .from('reviews')
+        .select('rating')
         .eq('product_id', productId)
-        .single()
+        .eq('is_approved', true)
 
-      if (error && error.code !== 'PGRST116') {
+      if (error) {
         console.error('Error fetching review stats:', error)
         return
       }
-      setReviewStats(data)
+      
+      if (reviewData && reviewData.length > 0) {
+        const totalReviews = reviewData.length
+        const averageRating = reviewData.reduce((sum, review) => sum + review.rating, 0) / totalReviews
+        
+        const stats = {
+          total_reviews: totalReviews,
+          average_rating: averageRating,
+          five_star_count: reviewData.filter(r => r.rating === 5).length,
+          four_star_count: reviewData.filter(r => r.rating === 4).length,
+          three_star_count: reviewData.filter(r => r.rating === 3).length,
+          two_star_count: reviewData.filter(r => r.rating === 2).length,
+          one_star_count: reviewData.filter(r => r.rating === 1).length
+        }
+        
+        setReviewStats(stats)
+        console.log('Review stats calculated:', stats)
+      } else {
+        setReviewStats(null)
+      }
     } catch (error) {
       console.error('Error fetching review stats:', error.message || error)
     }
@@ -82,54 +140,41 @@ export default function ProductReviews({ productId }) {
     const uploadedUrls = []
 
     try {
-      // Check if the review bucket exists
-      const { data: buckets, error: bucketsError } = await supabase.storage.listBuckets()
-      
-      if (bucketsError) {
-        console.error('Error checking buckets:', bucketsError)
-        toast.error(`Storage access error: ${bucketsError.message || 'Could not access storage'}`)
-        return []
-      }
-      
-      const reviewBucketExists = buckets.some(bucket => bucket.name === 'review')
-      
-      if (!reviewBucketExists) {
-        console.error('Review bucket does not exist')
-        toast.error('Storage not properly configured. Please contact support.')
-        return []
-      }
+      console.log('Uploading review images:', files.length)
       
       for (const file of files) {
         const fileExt = file.name.split('.').pop()
-        const fileName = `${user.id}/${Date.now()}.${fileExt}`
+        const fileName = `reviews/${user.id}/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`
         
+        console.log('Uploading file:', fileName)
+        
+        // Upload to productimage bucket (since review bucket might not exist)
         const { data, error } = await supabase.storage
-          .from('review')
-          .upload(fileName, file)
+          .from('productimage')
+          .upload(fileName, file, {
+            cacheControl: '3600',
+            upsert: false
+          })
 
         if (error) {
           console.error('Upload error:', error)
-          toast.error(`Failed to upload image ${file.name}: ${error.message || 'Unknown error'}`)
-          continue // Skip this file but try to upload others
+          console.warn(`Skipping image ${file.name} due to upload error`)
+          continue
         }
 
         const { data: { publicUrl } } = supabase.storage
-          .from('review')
+          .from('productimage')
           .getPublicUrl(fileName)
 
         uploadedUrls.push(publicUrl)
+        console.log('Image uploaded successfully:', publicUrl)
       }
       
-      if (uploadedUrls.length === 0 && files.length > 0) {
-        toast.error('Failed to upload any images. Please try again.')
-      } else if (uploadedUrls.length < files.length) {
-        toast.warning(`Uploaded ${uploadedUrls.length} of ${files.length} images.`)
-      }
-      
+      console.log(`Successfully uploaded ${uploadedUrls.length} of ${files.length} images`)
       return uploadedUrls
     } catch (error) {
       console.error('Error uploading images:', error)
-      toast.error(`Failed to upload images: ${error.message || 'Unknown error'}`)
+      console.warn('Image upload failed, continuing without images')
       return []
     } finally {
       setUploadingImages(false)
@@ -139,26 +184,56 @@ export default function ProductReviews({ productId }) {
   const handleSubmitReview = async (e) => {
     e.preventDefault()
     
+    console.log('=== REVIEW SUBMISSION DEBUG ===')
+    console.log('User:', user)
+    console.log('Rating:', rating)
+    console.log('Comment:', comment)
+    console.log('Title:', title)
+    console.log('Images:', reviewImages)
+    
     if (!user) {
+      console.log('ERROR: No user found')
       toast.error('Please sign in to submit a review')
       return
     }
 
     if (rating === 0) {
+      console.log('ERROR: No rating selected')
       toast.error('Please select a rating')
       return
     }
 
     if (!comment.trim()) {
+      console.log('ERROR: No comment provided')
       toast.error('Please write a review comment')
       return
     }
 
     setSubmitting(true)
+    console.log('Starting review submission process...')
 
     try {
-      // Upload images if any
-      const imageUrls = reviewImages.length > 0 ? await handleImageUpload(reviewImages) : []
+      console.log('Starting review submission...')
+      
+      // Ensure user profile exists
+      console.log('Ensuring user profile exists...')
+      const profileExists = await ensureUserProfile(user)
+      if (!profileExists) {
+        throw new Error('Failed to create or verify user profile')
+      }
+      console.log('User profile verified')
+      
+      // Upload images if any (but don't fail if upload fails)
+      let imageUrls = []
+      if (reviewImages.length > 0) {
+        console.log('Uploading review images...')
+        try {
+          imageUrls = await handleImageUpload(reviewImages)
+        } catch (uploadError) {
+          console.warn('Image upload failed, continuing without images:', uploadError)
+        }
+        console.log('Images uploaded:', imageUrls.length)
+      }
 
       // Prepare review data
       const reviewData = {
@@ -167,16 +242,18 @@ export default function ProductReviews({ productId }) {
         rating,
         title: title.trim() || null,
         comment: comment.trim(),
-        image_urls: imageUrls.length > 0 ? imageUrls : null
+        image_urls: imageUrls.length > 0 ? imageUrls : null,
       }
       
       console.log('Submitting review:', reviewData)
       
       // Submit review
-      const { data, error } = await supabase
-        .from('reviews')
-        .insert(reviewData)
-        .select()
+      const { data, error } = await safeQuery(async () => 
+        supabase
+          .from('reviews')
+          .insert(reviewData)
+          .select()
+      )
 
       if (error) {
         console.error('Supabase error:', error)
@@ -186,6 +263,8 @@ export default function ProductReviews({ productId }) {
           errorMessage = 'Invalid product or user reference';
         } else if (error.code === '23514') {
           errorMessage = 'Rating must be between 1 and 5';
+        } else if (error.code === '42501') {
+          errorMessage = 'Permission denied. Please ensure you are signed in.';
         } else if (error.message) {
           errorMessage += `: ${error.message}`;
         }
@@ -194,6 +273,7 @@ export default function ProductReviews({ productId }) {
         return;
       }
 
+      console.log('Review submitted successfully:', data)
       toast.success('Review submitted successfully! It will be visible after admin approval.')
       
       // Reset form
@@ -201,7 +281,7 @@ export default function ProductReviews({ productId }) {
       setTitle('')
       setComment('')
       setReviewImages([])
-      setDialogOpen(false)
+      setShowReviewModal(false)
       
       // Refresh reviews
       fetchReviews()
@@ -211,7 +291,34 @@ export default function ProductReviews({ productId }) {
       toast.error('Failed to submit review: ' + (error.message || 'Unknown error'))
     } finally {
       setSubmitting(false)
+      console.log('Review submission process completed')
     }
+  }
+
+  const openReviewModal = () => {
+    console.log('=== OPENING REVIEW MODAL ===')
+    console.log('User exists:', !!user)
+    console.log('User details:', user)
+    
+    if (!user) {
+      console.log('No user, showing error')
+      toast.error('Please sign in to write a review')
+      return
+    }
+    
+    console.log('Setting showReviewModal to true')
+    setShowReviewModal(true)
+    console.log('Modal should now be open')
+  }
+
+  const closeReviewModal = () => {
+    console.log('=== CLOSING REVIEW MODAL ===')
+    setShowReviewModal(false)
+    // Reset form
+    setRating(0)
+    setTitle('')
+    setComment('')
+    setReviewImages([])
   }
 
   const renderStars = (rating, interactive = false, onStarClick = null) => {
@@ -227,7 +334,12 @@ export default function ProductReviews({ productId }) {
             } ${
               interactive ? 'cursor-pointer hover:text-yellow-400' : ''
             }`}
-            onClick={() => interactive && onStarClick && onStarClick(i + 1)}
+            onClick={() => {
+              if (interactive && onStarClick) {
+                console.log('Star clicked:', i + 1)
+                onStarClick(i + 1)
+              }
+            }}
           />
         ))}
       </div>
@@ -294,118 +406,22 @@ export default function ProductReviews({ productId }) {
               <MessageSquare className="h-5 w-5" />
               <span>Customer Reviews</span>
             </span>
-            {user ? (
-              <>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={() => setDialogOpen(true)}
-                >
-                  Write Review
-                </Button>
-                <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                  <DialogContent className="max-w-2xl">
-                  <DialogHeader>
-                    <DialogTitle>Write a Review</DialogTitle>
-                    <DialogDescription>
-                      Share your experience with this product. Your review will help other customers make better purchasing decisions.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <form onSubmit={handleSubmitReview} className="space-y-4">
-                    {/* Rating */}
-                    <div>
-                      <label className="block text-sm font-medium mb-2">Rating *</label>
-                      {renderStars(rating, true, setRating)}
-                    </div>
-
-                    {/* Title */}
-                    <div>
-                      <label className="block text-sm font-medium mb-2">Review Title (Optional)</label>
-                      <Input
-                        value={title}
-                        onChange={(e) => setTitle(e.target.value)}
-                        placeholder="Summarize your review"
-                        maxLength={100}
-                      />
-                    </div>
-
-                    {/* Comment */}
-                    <div>
-                      <label className="block text-sm font-medium mb-2">Your Review *</label>
-                      <Textarea
-                        value={comment}
-                        onChange={(e) => setComment(e.target.value)}
-                        placeholder="Share your experience with this product"
-                        rows={4}
-                        maxLength={1000}
-                        required
-                      />
-                    </div>
-
-                    {/* Images */}
-                    <div>
-                      <label className="block text-sm font-medium mb-2">Photos (Optional)</label>
-                      <div className="space-y-2">
-                        <input
-                          type="file"
-                          multiple
-                          accept="image/*"
-                          onChange={(e) => setReviewImages(Array.from(e.target.files))}
-                          className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-amber-50 file:text-amber-700 hover:file:bg-amber-100"
-                        />
-                        {reviewImages.length > 0 && (
-                          <div className="flex flex-wrap gap-2">
-                            {reviewImages.map((file, index) => (
-                              <div key={index} className="relative">
-                                <img
-                                  src={URL.createObjectURL(file)}
-                                  alt={`Preview ${index + 1}`}
-                                  className="w-16 h-16 object-cover rounded border"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => setReviewImages(prev => prev.filter((_, i) => i !== index))}
-                                  className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs"
-                                >
-                                  <X className="h-3 w-3" />
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex justify-end space-x-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => setDialogOpen(false)}
-                        disabled={submitting}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        type="submit"
-                        disabled={submitting || uploadingImages}
-                        className="bg-amber-600 hover:bg-amber-700"
-                      >
-                        {submitting ? 'Submitting...' : 'Submit Review'}
-                      </Button>
-                    </div>
-                  </form>
-                  </DialogContent>
-                </Dialog>
-              </>
-            ) : (
+            <div className="flex items-center space-x-2">
               <Button 
                 variant="outline" 
-                size="sm" 
-                onClick={() => toast.error('Please sign in to write a review')}
+                size="sm"
+                onClick={() => {
+                  console.log('=== WRITE REVIEW BUTTON CLICKED ===')
+                  console.log('Current user:', user)
+                  console.log('Current modal state:', showReviewModal)
+                  openReviewModal()
+                  console.log('After openReviewModal call, modal state:', showReviewModal)
+                }}
+                className="bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200"
               >
-                Write Review
+                ✍️ Write Review
               </Button>
-            )}
+            </div>
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -414,7 +430,7 @@ export default function ProductReviews({ productId }) {
               {/* Overall Rating */}
               <div className="text-center">
                 <div className="text-4xl font-bold text-amber-600 mb-2">
-                  {reviewStats.average_rating || '0.0'}
+                  {reviewStats.average_rating?.toFixed(1) || '0.0'}
                 </div>
                 <div className="flex justify-center mb-2">
                   {renderStars(Math.round(reviewStats.average_rating || 0))}
@@ -459,7 +475,7 @@ export default function ProductReviews({ productId }) {
                       <div className="flex items-center justify-between mb-2">
                         <div>
                           <h4 className="font-medium text-gray-900">
-                            {review.user_name || 'Anonymous User'}
+                            {review.user_name || review.profiles?.full_name || 'Anonymous User'}
                           </h4>
                           <div className="flex items-center space-x-2 mt-1">
                             {renderStars(review.rating)}
@@ -486,6 +502,9 @@ export default function ProductReviews({ productId }) {
                                 width={80}
                                 height={80}
                                 className="object-cover rounded border"
+                                onError={(e) => {
+                                  e.target.style.display = 'none'
+                                }}
                               />
                             </div>
                           ))}
@@ -498,6 +517,161 @@ export default function ProductReviews({ productId }) {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* Custom Modal for Writing Reviews */}
+      {showReviewModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold text-gray-900">Write a Review</h2>
+                <button
+                  onClick={() => {
+                    console.log('Close button clicked')
+                    closeReviewModal()
+                  }}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
+
+              {/* Debug Info in Modal */}
+              {process.env.NODE_ENV === 'development' && (
+                <div className="bg-green-50 p-3 rounded mb-4 text-sm">
+                  <strong>🐛 Form Debug:</strong><br/>
+                  Rating: {rating} | Title: "{title}" | Comment: "{comment}" | Images: {reviewImages.length}
+                </div>
+              )}
+
+              <form onSubmit={handleSubmitReview} className="space-y-6">
+                {/* Rating */}
+                <div>
+                  <label className="block text-sm font-medium mb-3 text-gray-700">
+                    Rating * <span className="text-amber-600">(Click stars to rate)</span>
+                  </label>
+                  <div className="flex items-center space-x-2">
+                    {renderStars(rating, true, (newRating) => {
+                      console.log('Rating clicked:', newRating)
+                      setRating(newRating)
+                    })}
+                    <span className="ml-2 text-sm text-gray-600">
+                      {rating > 0 ? `${rating}/5` : 'Select rating'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Title */}
+                <div>
+                  <label className="block text-sm font-medium mb-2 text-gray-700">
+                    Review Title (Optional)
+                  </label>
+                  <Input
+                    value={title}
+                    onChange={(e) => {
+                      console.log('Title changed:', e.target.value)
+                      setTitle(e.target.value)
+                    }}
+                    placeholder="Summarize your review"
+                    maxLength={100}
+                    className="w-full"
+                  />
+                </div>
+
+                {/* Comment */}
+                <div>
+                  <label className="block text-sm font-medium mb-2 text-gray-700">
+                    Your Review *
+                  </label>
+                  <Textarea
+                    value={comment}
+                    onChange={(e) => {
+                      console.log('Comment changed:', e.target.value)
+                      setComment(e.target.value)
+                    }}
+                    placeholder="Share your experience with this product..."
+                    rows={4}
+                    maxLength={1000}
+                    required
+                    className="w-full"
+                  />
+                  <div className="text-xs text-gray-500 mt-1">
+                    {comment.length}/1000 characters
+                  </div>
+                </div>
+
+                {/* Images */}
+                <div>
+                  <label className="block text-sm font-medium mb-2 text-gray-700">
+                    Photos (Optional)
+                  </label>
+                  <div className="space-y-3">
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      max="3"
+                      onChange={(e) => {
+                        console.log('Images selected:', e.target.files.length)
+                        setReviewImages(Array.from(e.target.files))
+                      }}
+                      className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-amber-50 file:text-amber-700 hover:file:bg-amber-100"
+                    />
+                    <p className="text-xs text-gray-500">
+                      Maximum 3 images, 5MB each. Supported formats: JPG, PNG, WebP
+                    </p>
+                    {reviewImages.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {reviewImages.map((file, index) => (
+                          <div key={index} className="relative">
+                            <img
+                              src={URL.createObjectURL(file)}
+                              alt={`Preview ${index + 1}`}
+                              className="w-16 h-16 object-cover rounded border"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                console.log('Removing image:', index)
+                                setReviewImages(prev => prev.filter((_, i) => i !== index))
+                              }}
+                              className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Form Actions */}
+                <div className="flex justify-end space-x-3 pt-4 border-t">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      console.log('Cancel button clicked')
+                      closeReviewModal()
+                    }}
+                    disabled={submitting}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={submitting || uploadingImages || rating === 0 || !comment.trim()}
+                    className="bg-amber-600 hover:bg-amber-700"
+                  >
+                    {submitting ? 'Submitting...' : 'Submit Review'}
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
