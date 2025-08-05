@@ -7,7 +7,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from '@/components/ui/dialog'
 import { Star, MessageSquare, Camera, X, User } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase, safeQuery, ensureUserProfile } from '@/lib/supabase'
@@ -19,17 +18,10 @@ export default function ProductReviews({ productId }) {
   const [reviews, setReviews] = useState([])
   const [reviewStats, setReviewStats] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [showReviewModal, setShowReviewModal] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const { user } = useAuth()
 
-  console.log('ProductReviews state:', {
-    reviewsCount: reviews.length,
-    loading,
-    dialogOpen: isDialogOpen,
-    userExists: !!user,
-    userId: user?.id
-  })
   // Review form state
   const [rating, setRating] = useState(0)
   const [title, setTitle] = useState('')
@@ -37,12 +29,19 @@ export default function ProductReviews({ productId }) {
   const [reviewImages, setReviewImages] = useState([])
   const [uploadingImages, setUploadingImages] = useState(false)
 
+  console.log('=== COMPONENT STATE DEBUG ===')
+  console.log('User exists:', !!user)
+  console.log('User ID:', user?.id)
+  console.log('Show modal:', showReviewModal)
+  console.log('Reviews count:', reviews.length)
+  console.log('Loading:', loading)
+
   // Define fetch functions with useCallback to prevent unnecessary re-renders
   const fetchReviews = useCallback(async () => {
     try {
       console.log('Fetching reviews for product:', productId)
       
-      // Use the new function that matches your schema
+      // Use the function that matches your schema
       let { data, error } = await supabase.rpc('get_product_reviews_public', {
         product_id_param: productId
       })
@@ -149,7 +148,7 @@ export default function ProductReviews({ productId }) {
         
         console.log('Uploading file:', fileName)
         
-        // Upload to review bucket as specified in your SQL
+        // Upload to productimage bucket (since review bucket might not exist)
         const { data, error } = await supabase.storage
           .from('productimage')
           .upload(fileName, file, {
@@ -159,7 +158,6 @@ export default function ProductReviews({ productId }) {
 
         if (error) {
           console.error('Upload error:', error)
-          // If upload fails, continue without this image
           console.warn(`Skipping image ${file.name} due to upload error`)
           continue
         }
@@ -173,7 +171,6 @@ export default function ProductReviews({ productId }) {
       }
       
       console.log(`Successfully uploaded ${uploadedUrls.length} of ${files.length} images`)
-      
       return uploadedUrls
     } catch (error) {
       console.error('Error uploading images:', error)
@@ -234,7 +231,6 @@ export default function ProductReviews({ productId }) {
           imageUrls = await handleImageUpload(reviewImages)
         } catch (uploadError) {
           console.warn('Image upload failed, continuing without images:', uploadError)
-          // Continue without images rather than failing the entire review
         }
         console.log('Images uploaded:', imageUrls.length)
       }
@@ -285,7 +281,7 @@ export default function ProductReviews({ productId }) {
       setTitle('')
       setComment('')
       setReviewImages([])
-      setIsDialogOpen(false)
+      setShowReviewModal(false)
       
       // Refresh reviews
       fetchReviews()
@@ -297,6 +293,32 @@ export default function ProductReviews({ productId }) {
       setSubmitting(false)
       console.log('Review submission process completed')
     }
+  }
+
+  const openReviewModal = () => {
+    console.log('=== OPENING REVIEW MODAL ===')
+    console.log('User exists:', !!user)
+    console.log('User details:', user)
+    
+    if (!user) {
+      console.log('No user, showing error')
+      toast.error('Please sign in to write a review')
+      return
+    }
+    
+    console.log('Setting showReviewModal to true')
+    setShowReviewModal(true)
+    console.log('Modal should now be open')
+  }
+
+  const closeReviewModal = () => {
+    console.log('=== CLOSING REVIEW MODAL ===')
+    setShowReviewModal(false)
+    // Reset form
+    setRating(0)
+    setTitle('')
+    setComment('')
+    setReviewImages([])
   }
 
   const renderStars = (rating, interactive = false, onStarClick = null) => {
@@ -312,7 +334,12 @@ export default function ProductReviews({ productId }) {
             } ${
               interactive ? 'cursor-pointer hover:text-yellow-400' : ''
             }`}
-            onClick={() => interactive && onStarClick && onStarClick(i + 1)}
+            onClick={() => {
+              if (interactive && onStarClick) {
+                console.log('Star clicked:', i + 1)
+                onStarClick(i + 1)
+              }
+            }}
           />
         ))}
       </div>
@@ -371,6 +398,18 @@ export default function ProductReviews({ productId }) {
 
   return (
     <div className="space-y-6">
+      {/* Debug Panel */}
+      <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+        <h4 className="font-bold text-blue-800 mb-2">🐛 Debug Info</h4>
+        <div className="text-sm text-blue-700 space-y-1">
+          <div>User: {user ? '✅ Logged in' : '❌ Not logged in'}</div>
+          <div>User ID: {user?.id || 'None'}</div>
+          <div>Modal Open: {showReviewModal ? '✅ Yes' : '❌ No'}</div>
+          <div>Reviews Count: {reviews.length}</div>
+          <div>Product ID: {productId}</div>
+        </div>
+      </div>
+
       {/* Reviews Summary */}
       <Card className="shadow-sm">
         <CardHeader>
@@ -380,162 +419,20 @@ export default function ProductReviews({ productId }) {
               <span>Customer Reviews</span>
             </span>
             <div className="flex items-center space-x-2">
-              {/* Debug Info */}
-              <div className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
-                User: {user ? 'Yes' : 'No'} | Dialog: {isDialogOpen ? 'Open' : 'Closed'}
-              </div>
-              
-              {user ? (
-                <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                  <DialogTrigger asChild>
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      onClick={() => {
-                        console.log('Write Review button clicked!')
-                        console.log('Current dialog state:', isDialogOpen)
-                        console.log('User:', user)
-                        setIsDialogOpen(true)
-                      }}
-                    >
-                      Write Review
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="max-w-2xl">
-                    <DialogHeader>
-                      <DialogTitle>Write a Review</DialogTitle>
-                      <DialogDescription>
-                        Share your experience with this product. Your review will help other customers make better purchasing decisions.
-                      </DialogDescription>
-                    </DialogHeader>
-                    
-                    {/* Debug Info in Dialog */}
-                    <div className="bg-blue-50 p-3 rounded text-xs">
-                      <strong>Debug Info:</strong><br/>
-                      Rating: {rating} | Title: "{title}" | Comment: "{comment}" | Images: {reviewImages.length}
-                    </div>
-                    
-                    <form onSubmit={handleSubmitReview} className="space-y-4">
-                      {/* Rating */}
-                      <div>
-                        <label className="block text-sm font-medium mb-2">Rating *</label>
-                        {renderStars(rating, true, (newRating) => {
-                          console.log('Rating clicked:', newRating)
-                          setRating(newRating)
-                        })}
-                      </div>
-
-                      {/* Title */}
-                      <div>
-                        <label className="block text-sm font-medium mb-2">Review Title (Optional)</label>
-                        <Input
-                          value={title}
-                          onChange={(e) => {
-                            console.log('Title changed:', e.target.value)
-                            setTitle(e.target.value)
-                          }}
-                          placeholder="Summarize your review"
-                          maxLength={100}
-                        />
-                      </div>
-
-                      {/* Comment */}
-                      <div>
-                        <label className="block text-sm font-medium mb-2">Your Review *</label>
-                        <Textarea
-                          value={comment}
-                          onChange={(e) => {
-                            console.log('Comment changed:', e.target.value)
-                            setComment(e.target.value)
-                          }}
-                          placeholder="Share your experience with this product"
-                          rows={4}
-                          maxLength={1000}
-                          required
-                        />
-                      </div>
-
-                      {/* Images */}
-                      <div>
-                        <label className="block text-sm font-medium mb-2">Photos (Optional)</label>
-                        <div className="space-y-2">
-                          <input
-                            type="file"
-                            multiple
-                            accept="image/*"
-                            max="3"
-                            onChange={(e) => {
-                              console.log('Images selected:', e.target.files.length)
-                              setReviewImages(Array.from(e.target.files))
-                            }}
-                            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-amber-50 file:text-amber-700 hover:file:bg-amber-100"
-                          />
-                          <p className="text-xs text-gray-500">
-                            Maximum 3 images, 5MB each. Supported formats: JPG, PNG, WebP
-                          </p>
-                          {reviewImages.length > 0 && (
-                            <div className="flex flex-wrap gap-2">
-                              {reviewImages.map((file, index) => (
-                                <div key={index} className="relative">
-                                  <img
-                                    src={URL.createObjectURL(file)}
-                                    alt={`Preview ${index + 1}`}
-                                    className="w-16 h-16 object-cover rounded border"
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() => setReviewImages(prev => prev.filter((_, i) => i !== index))}
-                                    className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs"
-                                  >
-                                    <X className="h-3 w-3" />
-                                  </button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex justify-end space-x-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => {
-                            console.log('Cancel button clicked')
-                            setIsDialogOpen(false)
-                            // Reset form
-                            setRating(0)
-                            setTitle('')
-                            setComment('')
-                            setReviewImages([])
-                          }}
-                          disabled={submitting}
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          type="submit"
-                          disabled={submitting || uploadingImages}
-                          className="bg-amber-600 hover:bg-amber-700"
-                        >
-                          {submitting ? 'Submitting...' : 'Submit Review'}
-                        </Button>
-                      </div>
-                    </form>
-                  </DialogContent>
-                </Dialog>
-              ) : (
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={() => {
-                    console.log('Sign in required button clicked')
-                    toast.error('Please sign in to write a review')
-                  }}
-                >
-                  Write Review
-                </Button>
-              )}
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => {
+                  console.log('=== WRITE REVIEW BUTTON CLICKED ===')
+                  console.log('Current user:', user)
+                  console.log('Current modal state:', showReviewModal)
+                  openReviewModal()
+                  console.log('After openReviewModal call, modal state:', showReviewModal)
+                }}
+                className="bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200"
+              >
+                ✍️ Write Review
+              </Button>
             </div>
           </CardTitle>
         </CardHeader>
@@ -545,7 +442,7 @@ export default function ProductReviews({ productId }) {
               {/* Overall Rating */}
               <div className="text-center">
                 <div className="text-4xl font-bold text-amber-600 mb-2">
-                  {reviewStats.average_rating || '0.0'}
+                  {reviewStats.average_rating?.toFixed(1) || '0.0'}
                 </div>
                 <div className="flex justify-center mb-2">
                   {renderStars(Math.round(reviewStats.average_rating || 0))}
@@ -632,6 +529,159 @@ export default function ProductReviews({ productId }) {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* Custom Modal for Writing Reviews */}
+      {showReviewModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold text-gray-900">Write a Review</h2>
+                <button
+                  onClick={() => {
+                    console.log('Close button clicked')
+                    closeReviewModal()
+                  }}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
+
+              {/* Debug Info in Modal */}
+              <div className="bg-green-50 p-3 rounded mb-4 text-sm">
+                <strong>🐛 Form Debug:</strong><br/>
+                Rating: {rating} | Title: "{title}" | Comment: "{comment}" | Images: {reviewImages.length}
+              </div>
+
+              <form onSubmit={handleSubmitReview} className="space-y-6">
+                {/* Rating */}
+                <div>
+                  <label className="block text-sm font-medium mb-3 text-gray-700">
+                    Rating * <span className="text-amber-600">(Click stars to rate)</span>
+                  </label>
+                  <div className="flex items-center space-x-2">
+                    {renderStars(rating, true, (newRating) => {
+                      console.log('Rating clicked:', newRating)
+                      setRating(newRating)
+                    })}
+                    <span className="ml-2 text-sm text-gray-600">
+                      {rating > 0 ? `${rating}/5` : 'Select rating'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Title */}
+                <div>
+                  <label className="block text-sm font-medium mb-2 text-gray-700">
+                    Review Title (Optional)
+                  </label>
+                  <Input
+                    value={title}
+                    onChange={(e) => {
+                      console.log('Title changed:', e.target.value)
+                      setTitle(e.target.value)
+                    }}
+                    placeholder="Summarize your review"
+                    maxLength={100}
+                    className="w-full"
+                  />
+                </div>
+
+                {/* Comment */}
+                <div>
+                  <label className="block text-sm font-medium mb-2 text-gray-700">
+                    Your Review *
+                  </label>
+                  <Textarea
+                    value={comment}
+                    onChange={(e) => {
+                      console.log('Comment changed:', e.target.value)
+                      setComment(e.target.value)
+                    }}
+                    placeholder="Share your experience with this product..."
+                    rows={4}
+                    maxLength={1000}
+                    required
+                    className="w-full"
+                  />
+                  <div className="text-xs text-gray-500 mt-1">
+                    {comment.length}/1000 characters
+                  </div>
+                </div>
+
+                {/* Images */}
+                <div>
+                  <label className="block text-sm font-medium mb-2 text-gray-700">
+                    Photos (Optional)
+                  </label>
+                  <div className="space-y-3">
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      max="3"
+                      onChange={(e) => {
+                        console.log('Images selected:', e.target.files.length)
+                        setReviewImages(Array.from(e.target.files))
+                      }}
+                      className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-amber-50 file:text-amber-700 hover:file:bg-amber-100"
+                    />
+                    <p className="text-xs text-gray-500">
+                      Maximum 3 images, 5MB each. Supported formats: JPG, PNG, WebP
+                    </p>
+                    {reviewImages.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {reviewImages.map((file, index) => (
+                          <div key={index} className="relative">
+                            <img
+                              src={URL.createObjectURL(file)}
+                              alt={`Preview ${index + 1}`}
+                              className="w-16 h-16 object-cover rounded border"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                console.log('Removing image:', index)
+                                setReviewImages(prev => prev.filter((_, i) => i !== index))
+                              }}
+                              className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Form Actions */}
+                <div className="flex justify-end space-x-3 pt-4 border-t">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      console.log('Cancel button clicked')
+                      closeReviewModal()
+                    }}
+                    disabled={submitting}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={submitting || uploadingImages || rating === 0 || !comment.trim()}
+                    className="bg-amber-600 hover:bg-amber-700"
+                  >
+                    {submitting ? 'Submitting...' : 'Submit Review'}
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
