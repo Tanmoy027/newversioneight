@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog'
 import { Star, MessageSquare, Camera, X, User } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
-import { supabase } from '@/lib/supabase'
+import { supabase, safeQuery, ensureUserProfile } from '@/lib/supabase'
 import { toast } from 'sonner'
 
 export default function ProductReviews({ productId }) {
@@ -31,17 +31,45 @@ export default function ProductReviews({ productId }) {
   // Define fetch functions with useCallback to prevent unnecessary re-renders
   const fetchReviews = useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from('product_reviews_with_user')
-        .select('*')
-        .eq('product_id', productId)
-        .order('created_at', { ascending: false })
+      console.log('Fetching reviews for product:', productId)
+      
+      // Try the function first
+      let { data, error } = await supabase.rpc('get_product_reviews', {
+        product_id_param: productId
+      })
 
       if (error) {
-        console.error('Error fetching reviews:', error)
-        toast.error(`Failed to load reviews: ${error.message || 'Unknown error'}`)
-        return
+        console.warn('Function query failed, trying direct query:', error)
+        
+        // Fallback to direct query
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('reviews')
+          .select(`
+            *,
+            profiles!reviews_user_id_fkey (
+              full_name,
+              email
+            )
+          `)
+          .eq('product_id', productId)
+          .eq('is_approved', true)
+          .order('created_at', { ascending: false })
+        
+        if (fallbackError) {
+          console.error('Error fetching reviews:', fallbackError)
+          toast.error(`Failed to load reviews: ${fallbackError.message || 'Unknown error'}`)
+          return
+        }
+        
+        // Transform fallback data
+        data = fallbackData.map(review => ({
+          ...review,
+          user_name: review.profiles?.full_name || 'Anonymous User',
+          user_email: review.profiles?.email || null
+        }))
       }
+      
+      console.log('Reviews fetched successfully:', data?.length || 0)
       setReviews(data || [])
     } catch (error) {
       console.error('Error fetching reviews:', error.message || error)
@@ -53,17 +81,39 @@ export default function ProductReviews({ productId }) {
 
   const fetchReviewStats = useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from('product_review_stats')
-        .select('*')
+      console.log('Fetching review stats for product:', productId)
+      
+      // Calculate stats manually since view might not exist
+      const { data: reviewData, error } = await supabase
+        .from('reviews')
+        .select('rating')
         .eq('product_id', productId)
-        .single()
+        .eq('is_approved', true)
 
-      if (error && error.code !== 'PGRST116') {
+      if (error) {
         console.error('Error fetching review stats:', error)
         return
       }
-      setReviewStats(data)
+      
+      if (reviewData && reviewData.length > 0) {
+        const totalReviews = reviewData.length
+        const averageRating = reviewData.reduce((sum, review) => sum + review.rating, 0) / totalReviews
+        
+        const stats = {
+          total_reviews: totalReviews,
+          average_rating: averageRating,
+          five_star_count: reviewData.filter(r => r.rating === 5).length,
+          four_star_count: reviewData.filter(r => r.rating === 4).length,
+          three_star_count: reviewData.filter(r => r.rating === 3).length,
+          two_star_count: reviewData.filter(r => r.rating === 2).length,
+          one_star_count: reviewData.filter(r => r.rating === 1).length
+        }
+        
+        setReviewStats(stats)
+        console.log('Review stats calculated:', stats)
+      } else {
+        setReviewStats(null)
+      }
     } catch (error) {
       console.error('Error fetching review stats:', error.message || error)
     }
@@ -82,54 +132,43 @@ export default function ProductReviews({ productId }) {
     const uploadedUrls = []
 
     try {
-      // Check if the review bucket exists
-      const { data: buckets, error: bucketsError } = await supabase.storage.listBuckets()
-      
-      if (bucketsError) {
-        console.error('Error checking buckets:', bucketsError)
-        toast.error(`Storage access error: ${bucketsError.message || 'Could not access storage'}`)
-        return []
-      }
-      
-      const reviewBucketExists = buckets.some(bucket => bucket.name === 'review')
-      
-      if (!reviewBucketExists) {
-        console.error('Review bucket does not exist')
-        toast.error('Storage not properly configured. Please contact support.')
-        return []
-      }
+      console.log('Uploading review images:', files.length)
       
       for (const file of files) {
         const fileExt = file.name.split('.').pop()
-        const fileName = `${user.id}/${Date.now()}.${fileExt}`
+        const fileName = `reviews/${user.id}/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`
         
+        console.log('Uploading file:', fileName)
+        
+        // Try to upload to productimage bucket (since it exists)
         const { data, error } = await supabase.storage
-          .from('review')
-          .upload(fileName, file)
+          .from('productimage')
+          .upload(fileName, file, {
+            cacheControl: '3600',
+            upsert: false
+          })
 
         if (error) {
           console.error('Upload error:', error)
-          toast.error(`Failed to upload image ${file.name}: ${error.message || 'Unknown error'}`)
-          continue // Skip this file but try to upload others
+          // If upload fails, continue without this image
+          console.warn(`Skipping image ${file.name} due to upload error`)
+          continue
         }
 
         const { data: { publicUrl } } = supabase.storage
-          .from('review')
+          .from('productimage')
           .getPublicUrl(fileName)
 
         uploadedUrls.push(publicUrl)
+        console.log('Image uploaded successfully:', publicUrl)
       }
       
-      if (uploadedUrls.length === 0 && files.length > 0) {
-        toast.error('Failed to upload any images. Please try again.')
-      } else if (uploadedUrls.length < files.length) {
-        toast.warning(`Uploaded ${uploadedUrls.length} of ${files.length} images.`)
-      }
+      console.log(`Successfully uploaded ${uploadedUrls.length} of ${files.length} images`)
       
       return uploadedUrls
     } catch (error) {
       console.error('Error uploading images:', error)
-      toast.error(`Failed to upload images: ${error.message || 'Unknown error'}`)
+      console.warn('Image upload failed, continuing without images')
       return []
     } finally {
       setUploadingImages(false)
@@ -157,8 +196,23 @@ export default function ProductReviews({ productId }) {
     setSubmitting(true)
 
     try {
-      // Upload images if any
-      const imageUrls = reviewImages.length > 0 ? await handleImageUpload(reviewImages) : []
+      console.log('Starting review submission...')
+      
+      // Ensure user profile exists
+      console.log('Ensuring user profile exists...')
+      const profileExists = await ensureUserProfile(user)
+      if (!profileExists) {
+        throw new Error('Failed to create or verify user profile')
+      }
+      console.log('User profile verified')
+      
+      // Upload images if any (but don't fail if upload fails)
+      let imageUrls = []
+      if (reviewImages.length > 0) {
+        console.log('Uploading review images...')
+        imageUrls = await handleImageUpload(reviewImages)
+        console.log('Images uploaded:', imageUrls.length)
+      }
 
       // Prepare review data
       const reviewData = {
@@ -167,16 +221,19 @@ export default function ProductReviews({ productId }) {
         rating,
         title: title.trim() || null,
         comment: comment.trim(),
-        image_urls: imageUrls.length > 0 ? imageUrls : null
+        image_urls: imageUrls.length > 0 ? imageUrls : null,
+        is_approved: false // Reviews need admin approval
       }
       
       console.log('Submitting review:', reviewData)
       
       // Submit review
-      const { data, error } = await supabase
-        .from('reviews')
-        .insert(reviewData)
-        .select()
+      const { data, error } = await safeQuery(async () => 
+        supabase
+          .from('reviews')
+          .insert(reviewData)
+          .select()
+      )
 
       if (error) {
         console.error('Supabase error:', error)
@@ -186,6 +243,8 @@ export default function ProductReviews({ productId }) {
           errorMessage = 'Invalid product or user reference';
         } else if (error.code === '23514') {
           errorMessage = 'Rating must be between 1 and 5';
+        } else if (error.code === '42501') {
+          errorMessage = 'Permission denied. Please ensure you are signed in.';
         } else if (error.message) {
           errorMessage += `: ${error.message}`;
         }
@@ -194,6 +253,7 @@ export default function ProductReviews({ productId }) {
         return;
       }
 
+      console.log('Review submitted successfully:', data)
       toast.success('Review submitted successfully! It will be visible after admin approval.')
       
       // Reset form
@@ -211,6 +271,7 @@ export default function ProductReviews({ productId }) {
       toast.error('Failed to submit review: ' + (error.message || 'Unknown error'))
     } finally {
       setSubmitting(false)
+      console.log('Review submission process completed')
     }
   }
 
@@ -350,9 +411,13 @@ export default function ProductReviews({ productId }) {
                           type="file"
                           multiple
                           accept="image/*"
+                          max="3"
                           onChange={(e) => setReviewImages(Array.from(e.target.files))}
                           className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-amber-50 file:text-amber-700 hover:file:bg-amber-100"
                         />
+                        <p className="text-xs text-gray-500">
+                          Maximum 3 images, 5MB each. Supported formats: JPG, PNG, WebP
+                        </p>
                         {reviewImages.length > 0 && (
                           <div className="flex flex-wrap gap-2">
                             {reviewImages.map((file, index) => (
@@ -401,7 +466,11 @@ export default function ProductReviews({ productId }) {
               <Button 
                 variant="outline" 
                 size="sm" 
-                onClick={() => toast.error('Please sign in to write a review')}
+                onClick={() => {
+                  toast.error('Please sign in to write a review')
+                  // Optionally redirect to auth page
+                  // window.location.href = '/auth'
+                }}
               >
                 Write Review
               </Button>
@@ -459,7 +528,7 @@ export default function ProductReviews({ productId }) {
                       <div className="flex items-center justify-between mb-2">
                         <div>
                           <h4 className="font-medium text-gray-900">
-                            {review.user_name || 'Anonymous User'}
+                            {review.user_name || review.profiles?.full_name || 'Anonymous User'}
                           </h4>
                           <div className="flex items-center space-x-2 mt-1">
                             {renderStars(review.rating)}
@@ -486,6 +555,9 @@ export default function ProductReviews({ productId }) {
                                 width={80}
                                 height={80}
                                 className="object-cover rounded border"
+                                onError={(e) => {
+                                  e.target.style.display = 'none'
+                                }}
                               />
                             </div>
                           ))}

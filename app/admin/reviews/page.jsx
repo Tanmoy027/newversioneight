@@ -20,7 +20,7 @@ import {
   CheckCircle,
   Clock
 } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
+import { supabase, safeQuery } from '@/lib/supabase'
 import { toast } from 'sonner'
 
 export default function AdminReviewsPage() {
@@ -37,22 +37,48 @@ export default function AdminReviewsPage() {
   const fetchReviews = async () => {
     try {
       setLoading(true)
-      const { data, error } = await supabase
-        .from('reviews')
-        .select(`
-          *,
-          profiles!reviews_user_id_fkey (
-            full_name,
-            email
-          ),
-          products (
-            name,
-            image_url
-          )
-        `)
-        .order('created_at', { ascending: false })
-
+      console.log('Admin: Fetching all reviews...')
+      
+      // Use the admin function to bypass RLS issues
+      let { data, error } = await safeQuery(async () => 
+        supabase.rpc('get_all_reviews_admin')
+      )
+        console.warn('Admin function failed, trying direct query:', error)
+        
+        // Fallback to direct query
+        const { data: fallbackData, error: fallbackError } = await safeQuery(async () => 
+          supabase
+            .from('reviews')
+            .select(`
+              *,
+              profiles!reviews_user_id_fkey (
+                full_name,
+                email
+              ),
+              products (
+                name,
+                image_url,
+                image_urls
+              )
+            `)
+            .order('created_at', { ascending: false })
+        )
+        
+        if (fallbackError) {
+          throw fallbackError
+        }
+        
+        // Transform fallback data to match expected format
+        data = fallbackData.map(review => ({
+          ...review,
+          user_name: review.profiles?.full_name || 'Anonymous User',
+          user_email: review.profiles?.email || null,
+          product_name: review.products?.name || 'Unknown Product',
+          product_image: review.products?.image_urls?.[0] || review.products?.image_url || '/placeholder.jpg'
+        }))
       if (error) throw error
+      
+      console.log('Admin: Reviews fetched successfully:', data?.length || 0)
       setReviews(data || [])
     } catch (error) {
       console.error('Error fetching reviews:', error)
@@ -65,13 +91,22 @@ export default function AdminReviewsPage() {
   const handleApproveReview = async (reviewId) => {
     setActionLoading(true)
     try {
-      const { error } = await supabase
-        .from('reviews')
-        .update({ is_approved: true })
-        .eq('id', reviewId)
+      console.log('Approving review:', reviewId)
+      
+      const { error } = await safeQuery(async () => 
+        supabase
+          .from('reviews')
+          .update({ 
+            is_approved: true,
+            approved_at: new Date().toISOString(),
+            approved_by: user?.id
+          })
+          .eq('id', reviewId)
+      )
 
       if (error) throw error
 
+      console.log('Review approved successfully')
       toast.success('Review approved successfully')
       fetchReviews()
     } catch (error) {
@@ -85,13 +120,22 @@ export default function AdminReviewsPage() {
   const handleRejectReview = async (reviewId) => {
     setActionLoading(true)
     try {
-      const { error } = await supabase
-        .from('reviews')
-        .update({ is_approved: false })
-        .eq('id', reviewId)
+      console.log('Rejecting review:', reviewId)
+      
+      const { error } = await safeQuery(async () => 
+        supabase
+          .from('reviews')
+          .update({ 
+            is_approved: false,
+            approved_at: null,
+            approved_by: null
+          })
+          .eq('id', reviewId)
+      )
 
       if (error) throw error
 
+      console.log('Review rejected successfully')
       toast.success('Review rejected successfully')
       fetchReviews()
     } catch (error) {
@@ -109,13 +153,18 @@ export default function AdminReviewsPage() {
 
     setActionLoading(true)
     try {
-      const { error } = await supabase
-        .from('reviews')
-        .delete()
-        .eq('id', reviewId)
+      console.log('Deleting review:', reviewId)
+      
+      const { error } = await safeQuery(async () => 
+        supabase
+          .from('reviews')
+          .delete()
+          .eq('id', reviewId)
+      )
 
       if (error) throw error
 
+      console.log('Review deleted successfully')
       toast.success('Review deleted successfully')
       fetchReviews()
     } catch (error) {
@@ -171,7 +220,7 @@ export default function AdminReviewsPage() {
   const filterReviews = (status) => {
     switch (status) {
       case 'pending':
-        return reviews.filter(review => review.is_approved === false)
+        return reviews.filter(review => review.is_approved === false || review.is_approved === null)
       case 'approved':
         return reviews.filter(review => review.is_approved === true)
       case 'all':
@@ -189,11 +238,14 @@ export default function AdminReviewsPage() {
             {/* Product Image */}
             <div className="flex-shrink-0">
               <Image
-                src={review.products?.image_url || '/placeholder.jpg'}
+                src={review.products?.image_urls?.[0] || review.products?.image_url || '/placeholder.jpg'}
                 alt={review.products?.name || 'Product'}
                 width={60}
                 height={60}
                 className="object-cover rounded border"
+                onError={(e) => {
+                  e.target.src = '/placeholder.jpg'
+                }}
               />
             </div>
             
@@ -238,6 +290,9 @@ export default function AdminReviewsPage() {
                       width={50}
                       height={50}
                       className="object-cover rounded border"
+                      onError={(e) => {
+                        e.target.style.display = 'none'
+                      }}
                     />
                   ))}
                   {review.image_urls.length > 3 && (
@@ -275,8 +330,8 @@ export default function AdminReviewsPage() {
                       </div>
                       <div>
                         <label className="text-sm font-medium text-gray-600">Customer</label>
-                        <p className="font-medium">{selectedReview.profiles?.full_name}</p>
-                        <p className="text-sm text-gray-600">{selectedReview.profiles?.email}</p>
+                        <p className="font-medium">{selectedReview.profiles?.full_name || 'Anonymous User'}</p>
+                        <p className="text-sm text-gray-600">{selectedReview.profiles?.email || 'No email'}</p>
                       </div>
                       <div>
                         <label className="text-sm font-medium text-gray-600">Rating</label>
@@ -315,6 +370,9 @@ export default function AdminReviewsPage() {
                               width={150}
                               height={150}
                               className="object-cover rounded border"
+                              onError={(e) => {
+                                e.target.style.display = 'none'
+                              }}
                             />
                           ))}
                         </div>
@@ -325,7 +383,7 @@ export default function AdminReviewsPage() {
               </DialogContent>
             </Dialog>
             
-            {review.is_approved === false && (
+            {(review.is_approved === false || review.is_approved === null) && (
               <Button
                 size="sm"
                 onClick={() => handleApproveReview(review.id)}
