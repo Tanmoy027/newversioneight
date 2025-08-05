@@ -14,6 +14,8 @@ import { supabase, safeQuery, ensureUserProfile } from '@/lib/supabase'
 import { toast } from 'sonner'
 
 export default function ProductReviews({ productId }) {
+  console.log('ProductReviews component rendered with productId:', productId)
+  
   const [reviews, setReviews] = useState([])
   const [reviewStats, setReviewStats] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -21,6 +23,13 @@ export default function ProductReviews({ productId }) {
   const [submitting, setSubmitting] = useState(false)
   const { user } = useAuth()
 
+  console.log('ProductReviews state:', {
+    reviewsCount: reviews.length,
+    loading,
+    dialogOpen,
+    userExists: !!user,
+    userId: user?.id
+  })
   // Review form state
   const [rating, setRating] = useState(0)
   const [title, setTitle] = useState('')
