@@ -39,6 +39,24 @@ export default function AdminReviewsPage() {
       setLoading(true)
       console.log('Admin: Fetching all reviews...')
       
+      // First check if current user is admin
+      const { data: { user: currentUser } } = await supabase.auth.getUser()
+      if (!currentUser) {
+        throw new Error('No authenticated user found')
+      }
+      
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('is_admin')
+        .eq('id', currentUser.id)
+        .single()
+      
+      if (!profile?.is_admin) {
+        throw new Error('Access denied: Admin privileges required')
+      }
+      
+      console.log('Admin access verified for user:', currentUser.id)
+      
       // Use the correct function name from your schema
       let { data, error } = await safeQuery(async () => 
         supabase.rpc('get_all_reviews_for_admin')
@@ -85,7 +103,7 @@ export default function AdminReviewsPage() {
       setReviews(data || [])
     } catch (error) {
       console.error('Error fetching reviews:', error)
-      toast.error('Failed to load reviews')
+      toast.error(`Failed to load reviews: ${error.message}`)
     } finally {
       setLoading(false)
     }
@@ -96,25 +114,82 @@ export default function AdminReviewsPage() {
     try {
       console.log('Approving review:', reviewId)
       
-      const { error } = await safeQuery(async () => 
-        supabase
+      // Get current user for approved_by field
+      const { data: { user: currentUser } } = await supabase.auth.getUser()
+      if (!currentUser) {
+        throw new Error('No authenticated user found')
+      }
+      
+      console.log('Current admin user:', currentUser.id)
+      
+      // Test admin permissions first
+      console.log('Testing admin permissions...')
+      const { data: permissionTest, error: permError } = await supabase
+        .rpc('test_admin_permissions', { user_id_param: currentUser.id })
+      
+      if (permError) {
+        console.error('Permission test failed:', permError)
+      } else {
+        console.log('Permission test result:', permissionTest)
+      }
+      
+      // Get review debug info
+      console.log('Getting review debug info...')
+      const { data: reviewDebug, error: debugError } = await supabase
+        .rpc('get_review_debug_info', { review_id_param: reviewId })
+      
+      if (debugError) {
+        console.error('Review debug failed:', debugError)
+      } else {
+        console.log('Review debug info:', reviewDebug)
+      }
+      
+      // Try using the enhanced approval function
+      console.log('Using enhanced approval function...')
+      const { data: approvalResult, error: approvalError } = await supabase
+        .rpc('approve_review_with_logging', { 
+          review_id_param: reviewId,
+          admin_user_id: currentUser.id
+        })
+      
+      if (approvalError) {
+        console.error('Enhanced approval failed:', approvalError)
+        throw new Error(`Approval function failed: ${approvalError.message}`)
+      }
+      
+      console.log('Approval result:', approvalResult)
+      
+      if (approvalResult && approvalResult[0] && !approvalResult[0].success) {
+        throw new Error(approvalResult[0].error_message)
+      }
+      
+      // Fallback to direct update if function approach fails
+      if (!approvalResult || !approvalResult[0] || !approvalResult[0].success) {
+        console.log('Function approach failed, trying direct update...')
+        const { error: directError } = await supabase
           .from('reviews')
           .update({ 
             is_approved: true,
             approved_at: new Date().toISOString(),
-            approved_by: user?.id
+            approved_by: currentUser.id,
+            updated_at: new Date().toISOString()
           })
           .eq('id', reviewId)
-      )
-
-      if (error) throw error
-
+        
+        if (directError) {
+          console.error('Direct update also failed:', directError)
+          throw new Error(`Direct update failed: ${directError.message}`)
+        }
+        
+        console.log('Direct update succeeded')
+      }
+      
       console.log('Review approved successfully')
       toast.success('Review approved successfully')
       fetchReviews()
     } catch (error) {
       console.error('Error approving review:', error)
-      toast.error('Failed to approve review')
+      toast.error(`Failed to approve review: ${error.message}`)
     } finally {
       setActionLoading(false)
     }
@@ -124,6 +199,14 @@ export default function AdminReviewsPage() {
     setActionLoading(true)
     try {
       console.log('Rejecting review:', reviewId)
+      
+      // Get current user for tracking who rejected
+      const { data: { user: currentUser } } = await supabase.auth.getUser()
+      if (!currentUser) {
+        throw new Error('No authenticated user found')
+      }
+      
+      console.log('Current admin user rejecting:', currentUser.id)
       
       const { error } = await safeQuery(async () => 
         supabase
@@ -143,7 +226,7 @@ export default function AdminReviewsPage() {
       fetchReviews()
     } catch (error) {
       console.error('Error rejecting review:', error)
-      toast.error('Failed to reject review')
+      toast.error(`Failed to reject review: ${error.message}`)
     } finally {
       setActionLoading(false)
     }
@@ -389,12 +472,16 @@ export default function AdminReviewsPage() {
             {(review.is_approved === false || review.is_approved === null) && (
               <Button
                 size="sm"
-                onClick={() => handleApproveReview(review.id)}
+                onClick={() => {
+                  console.log('Approve button clicked for review:', review.id)
+                  console.log('Review current status:', review.is_approved)
+                  handleApproveReview(review.id)
+                }}
                 disabled={actionLoading}
                 className="bg-green-600 hover:bg-green-700"
               >
                 <Check className="h-4 w-4 mr-1" />
-                Approve
+                {actionLoading ? 'Approving...' : 'Approve'}
               </Button>
             )}
             
@@ -402,11 +489,15 @@ export default function AdminReviewsPage() {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => handleRejectReview(review.id)}
+                onClick={() => {
+                  console.log('Reject button clicked for review:', review.id)
+                  console.log('Review current status:', review.is_approved)
+                  handleRejectReview(review.id)
+                }}
                 disabled={actionLoading}
               >
                 <X className="h-4 w-4 mr-1" />
-                Reject
+                {actionLoading ? 'Rejecting...' : 'Reject'}
               </Button>
             )}
             
