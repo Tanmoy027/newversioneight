@@ -398,20 +398,6 @@ export default function ProductReviews({ productId }) {
 
   return (
     <div className="space-y-6">
-      {/* Debug Panel - Only show in development */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-          <h4 className="font-bold text-blue-800 mb-2">🐛 Debug Info</h4>
-          <div className="text-sm text-blue-700 space-y-1">
-            <div>User: {user ? '✅ Logged in' : '❌ Not logged in'}</div>
-            <div>User ID: {user?.id || 'None'}</div>
-            <div>Modal Open: {showReviewModal ? '✅ Yes' : '❌ No'}</div>
-            <div>Reviews Count: {reviews.length}</div>
-            <div>Product ID: {productId}</div>
-          </div>
-        </div>
-      )}
-
       {/* Reviews Summary */}
       <Card className="shadow-sm">
         <CardHeader>
