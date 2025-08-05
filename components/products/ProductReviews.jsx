@@ -19,14 +19,14 @@ export default function ProductReviews({ productId }) {
   const [reviews, setReviews] = useState([])
   const [reviewStats, setReviewStats] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [dialogOpen, setDialogOpen] = useState(false)
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const { user } = useAuth()
 
   console.log('ProductReviews state:', {
     reviewsCount: reviews.length,
     loading,
-    dialogOpen,
+    dialogOpen: isDialogOpen,
     userExists: !!user,
     userId: user?.id
   })
@@ -247,7 +247,6 @@ export default function ProductReviews({ productId }) {
         title: title.trim() || null,
         comment: comment.trim(),
         image_urls: imageUrls.length > 0 ? imageUrls : null,
-        is_approved: false // Reviews need admin approval
       }
       
       console.log('Submitting review:', reviewData)
@@ -286,7 +285,7 @@ export default function ProductReviews({ productId }) {
       setTitle('')
       setComment('')
       setReviewImages([])
-      setDialogOpen(false)
+      setIsDialogOpen(false)
       
       // Refresh reviews
       fetchReviews()
@@ -380,126 +379,164 @@ export default function ProductReviews({ productId }) {
               <MessageSquare className="h-5 w-5" />
               <span>Customer Reviews</span>
             </span>
-            {user ? (
-              <>
+            <div className="flex items-center space-x-2">
+              {/* Debug Info */}
+              <div className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                User: {user ? 'Yes' : 'No'} | Dialog: {isDialogOpen ? 'Open' : 'Closed'}
+              </div>
+              
+              {user ? (
+                <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => {
+                        console.log('Write Review button clicked!')
+                        console.log('Current dialog state:', isDialogOpen)
+                        console.log('User:', user)
+                        setIsDialogOpen(true)
+                      }}
+                    >
+                      Write Review
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                      <DialogTitle>Write a Review</DialogTitle>
+                      <DialogDescription>
+                        Share your experience with this product. Your review will help other customers make better purchasing decisions.
+                      </DialogDescription>
+                    </DialogHeader>
+                    
+                    {/* Debug Info in Dialog */}
+                    <div className="bg-blue-50 p-3 rounded text-xs">
+                      <strong>Debug Info:</strong><br/>
+                      Rating: {rating} | Title: "{title}" | Comment: "{comment}" | Images: {reviewImages.length}
+                    </div>
+                    
+                    <form onSubmit={handleSubmitReview} className="space-y-4">
+                      {/* Rating */}
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Rating *</label>
+                        {renderStars(rating, true, (newRating) => {
+                          console.log('Rating clicked:', newRating)
+                          setRating(newRating)
+                        })}
+                      </div>
+
+                      {/* Title */}
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Review Title (Optional)</label>
+                        <Input
+                          value={title}
+                          onChange={(e) => {
+                            console.log('Title changed:', e.target.value)
+                            setTitle(e.target.value)
+                          }}
+                          placeholder="Summarize your review"
+                          maxLength={100}
+                        />
+                      </div>
+
+                      {/* Comment */}
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Your Review *</label>
+                        <Textarea
+                          value={comment}
+                          onChange={(e) => {
+                            console.log('Comment changed:', e.target.value)
+                            setComment(e.target.value)
+                          }}
+                          placeholder="Share your experience with this product"
+                          rows={4}
+                          maxLength={1000}
+                          required
+                        />
+                      </div>
+
+                      {/* Images */}
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Photos (Optional)</label>
+                        <div className="space-y-2">
+                          <input
+                            type="file"
+                            multiple
+                            accept="image/*"
+                            max="3"
+                            onChange={(e) => {
+                              console.log('Images selected:', e.target.files.length)
+                              setReviewImages(Array.from(e.target.files))
+                            }}
+                            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-amber-50 file:text-amber-700 hover:file:bg-amber-100"
+                          />
+                          <p className="text-xs text-gray-500">
+                            Maximum 3 images, 5MB each. Supported formats: JPG, PNG, WebP
+                          </p>
+                          {reviewImages.length > 0 && (
+                            <div className="flex flex-wrap gap-2">
+                              {reviewImages.map((file, index) => (
+                                <div key={index} className="relative">
+                                  <img
+                                    src={URL.createObjectURL(file)}
+                                    alt={`Preview ${index + 1}`}
+                                    className="w-16 h-16 object-cover rounded border"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => setReviewImages(prev => prev.filter((_, i) => i !== index))}
+                                    className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs"
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end space-x-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            console.log('Cancel button clicked')
+                            setIsDialogOpen(false)
+                            // Reset form
+                            setRating(0)
+                            setTitle('')
+                            setComment('')
+                            setReviewImages([])
+                          }}
+                          disabled={submitting}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          type="submit"
+                          disabled={submitting || uploadingImages}
+                          className="bg-amber-600 hover:bg-amber-700"
+                        >
+                          {submitting ? 'Submitting...' : 'Submit Review'}
+                        </Button>
+                      </div>
+                    </form>
+                  </DialogContent>
+                </Dialog>
+              ) : (
                 <Button 
                   variant="outline" 
                   size="sm" 
-                  onClick={() => setDialogOpen(true)}
+                  onClick={() => {
+                    console.log('Sign in required button clicked')
+                    toast.error('Please sign in to write a review')
+                  }}
                 >
                   Write Review
                 </Button>
-                <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                  <DialogContent className="max-w-2xl">
-                  <DialogHeader>
-                    <DialogTitle>Write a Review</DialogTitle>
-                    <DialogDescription>
-                      Share your experience with this product. Your review will help other customers make better purchasing decisions.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <form onSubmit={handleSubmitReview} className="space-y-4">
-                    {/* Rating */}
-                    <div>
-                      <label className="block text-sm font-medium mb-2">Rating *</label>
-                      {renderStars(rating, true, setRating)}
-                    </div>
-
-                    {/* Title */}
-                    <div>
-                      <label className="block text-sm font-medium mb-2">Review Title (Optional)</label>
-                      <Input
-                        value={title}
-                        onChange={(e) => setTitle(e.target.value)}
-                        placeholder="Summarize your review"
-                        maxLength={100}
-                      />
-                    </div>
-
-                    {/* Comment */}
-                    <div>
-                      <label className="block text-sm font-medium mb-2">Your Review *</label>
-                      <Textarea
-                        value={comment}
-                        onChange={(e) => setComment(e.target.value)}
-                        placeholder="Share your experience with this product"
-                        rows={4}
-                        maxLength={1000}
-                        required
-                      />
-                    </div>
-
-                    {/* Images */}
-                    <div>
-                      <label className="block text-sm font-medium mb-2">Photos (Optional)</label>
-                      <div className="space-y-2">
-                        <input
-                          type="file"
-                          multiple
-                          accept="image/*"
-                          max="3"
-                          onChange={(e) => setReviewImages(Array.from(e.target.files))}
-                          className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-amber-50 file:text-amber-700 hover:file:bg-amber-100"
-                        />
-                        <p className="text-xs text-gray-500">
-                          Maximum 3 images, 5MB each. Supported formats: JPG, PNG, WebP
-                        </p>
-                        {reviewImages.length > 0 && (
-                          <div className="flex flex-wrap gap-2">
-                            {reviewImages.map((file, index) => (
-                              <div key={index} className="relative">
-                                <img
-                                  src={URL.createObjectURL(file)}
-                                  alt={`Preview ${index + 1}`}
-                                  className="w-16 h-16 object-cover rounded border"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => setReviewImages(prev => prev.filter((_, i) => i !== index))}
-                                  className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs"
-                                >
-                                  <X className="h-3 w-3" />
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex justify-end space-x-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => setDialogOpen(false)}
-                        disabled={submitting}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        type="submit"
-                        disabled={submitting || uploadingImages}
-                        className="bg-amber-600 hover:bg-amber-700"
-                      >
-                        {submitting ? 'Submitting...' : 'Submit Review'}
-                      </Button>
-                    </div>
-                  </form>
-                  </DialogContent>
-                </Dialog>
-              </>
-            ) : (
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={() => {
-                  toast.error('Please sign in to write a review')
-                  // Optionally redirect to auth page
-                  // window.location.href = '/auth'
-                }}
-              >
-                Write Review
-              </Button>
-            )}
+              )}
+            </div>
           </CardTitle>
         </CardHeader>
         <CardContent>
