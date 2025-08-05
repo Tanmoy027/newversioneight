@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'  // Add useRef here
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -17,42 +17,65 @@ export default function AccountPage() {
   const { user, signOut, loading, refreshUser } = useAuth()
   const router = useRouter()
   const [isEditing, setIsEditing] = useState(false)
-const [isSaving, setIsSaving] = useState(false)
-const [profileData, setProfileData] = useState({
-  full_name: '',
-  email: '',
-  phone: '',
-  address: ''
-})
+  const [isSaving, setIsSaving] = useState(false)
+  const [profileData, setProfileData] = useState({
+    full_name: '',
+    email: '',
+    phone: '',
+    address: ''
+  })
+
+  // Create the ref before the useEffect
+  const hasRun = useRef(false);
 
   useEffect(() => {
-  if (!loading && !user) {
-    router.push('/auth')
-    return
-  }
-
-  const fetchProfile = async () => {
-    try {
-      const { data, error } = await safeQuery(async () => 
-        supabase.from('profiles').select('full_name, email, phone, address').eq('id', user.id).single()
-      )
-      if (error) throw error
-      if (data) {
-        setProfileData({
-          full_name: data.full_name || user?.email?.split('@')[0] || '',
-          email: data.email || user?.email || '',
-          phone: data.phone || '',
-          address: data.address || ''
-        })
-      }
-    } catch (error) {
-      console.error('Error fetching profile:', error)
-      toast.error('Failed to load profile data')
+    // Only redirect if we're sure user isn't authenticated
+    if (!loading && !user) {
+      router.push('/auth');
+      return;
     }
-  }
+    
+    // Only run the fetch operation when we have a user and haven't already fetched
+    if (user && !hasRun.current) {
+      const fetchProfileData = async () => {
+        try {
+          // Set a flag to prevent multiple fetches while this one is in progress
+          hasRun.current = true;
+          
+          const { data, error } = await safeQuery(async () => 
+            supabase.from('profiles').select('full_name, email, phone, address').eq('id', user.id).single()
+          );
+          
+          if (error) throw error;
+          if (data) {
+            setProfileData({
+              full_name: data.full_name || user?.email?.split('@')[0] || '',
+              email: data.email || user?.email || '',
+              phone: data.phone || '',
+              address: data.address || ''
+            });
+          }
+        } catch (error) {
+          console.error('Error fetching profile:', error);
+          toast.error('Failed to load profile data');
+        }
+      };
 
-  if (user) fetchProfile()
-}, [user, router, loading])
+      fetchProfileData();
+    }
+  }, [user, loading]) // Remove router from dependencies
+
+  // Add loading timeout protection
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (loading) {
+        console.log("Loading timeout - forcing refresh");
+        window.location.reload();
+      }
+    }, 2000); // 2 second timeout
+    
+    return () => clearTimeout(timeoutId);
+  }, [loading]);
 
   const handleLogout = async () => {
     try {
