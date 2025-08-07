@@ -109,7 +109,24 @@ export async function PUT(request, { params }) {
       // If it's a UUID, use it directly; otherwise, look up by name
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
       if (uuidRegex.test(categoryInput)) {
-        productData.category_id = categoryInput
+        // Verify the UUID exists in categories table
+        const { data: categoryExists } = await supabaseAdmin
+          .from("categories")
+          .select("id")
+          .eq("id", categoryInput)
+          .single()
+        
+        if (categoryExists) {
+          productData.category_id = categoryInput
+        } else {
+          return Response.json(
+            {
+              success: false,
+              error: `Category with ID ${categoryInput} does not exist`,
+            },
+            { status: 400 },
+          )
+        }
       } else {
         // Look up category by name
         const { data: categoryData } = await supabaseAdmin
@@ -120,6 +137,15 @@ export async function PUT(request, { params }) {
         
         if (categoryData) {
           productData.category_id = categoryData.id
+        } else {
+          // Category not found - return error instead of proceeding
+          return Response.json(
+            {
+              success: false,
+              error: `Category "${categoryInput}" does not exist. Please select a valid category.`,
+            },
+            { status: 400 },
+          )
         }
       }
     }
