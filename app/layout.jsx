@@ -8,6 +8,7 @@ import { Toaster } from '@/components/ui/sonner'
 import Header from '@/components/layout/header'
 import Footer from '@/components/layout/footer'
 import LenisProvider from '@/components/ui/lenis-provider'
+import ClientWhatsAppChat from '@/components/client-whatsapp-chat'
 import { usePathname } from 'next/navigation'
 import { useConnectionKeepAlive } from '@/hooks/useConnectionKeepAlive'
 
@@ -29,6 +30,7 @@ export default function RootLayout({ children }) {
               {!isAdminRoute && <Header />}
               <main>{children}</main>
               {!isAdminRoute && <Footer />}
+              {!isAdminRoute && <ClientWhatsAppChat />}
               <Toaster />
             </LenisProvider>
           </CartProvider>
