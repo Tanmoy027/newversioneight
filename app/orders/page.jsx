@@ -1,51 +1,46 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Image from 'next/image'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { LoadingPage } from '@/components/ui/loading'
-import { Package, Calendar, MapPin, DollarSign, RefreshCw } from 'lucide-react'
+import { Package, Calendar, MapPin, DollarSign } from 'lucide-react'
 
 export default function OrdersPage() {
   const { user, loading: authLoading } = useAuth()
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
-  const [retryCount, setRetryCount] = useState(0)
+  const hasRun = useRef(false)
 
-  // Refresh session periodically to avoid stale connections
+  // Add loading timeout protection
   useEffect(() => {
-    const refreshSession = async () => {
-      try {
-        await supabase.auth.refreshSession()
-      } catch (error) {
-        console.log('Session refresh failed:', error)
+    const timeoutId = setTimeout(() => {
+      if (loading && orders.length === 0) {
+        console.log("Loading timeout - forcing refresh")
+        window.location.reload()
       }
-    }
-
-    // Refresh session every 5 minutes
-    const interval = setInterval(refreshSession, 5 * 60 * 1000)
-    return () => clearInterval(interval)
-  }, [])
+    }, 10000) // 10 second timeout for orders
+    
+    return () => clearTimeout(timeoutId)
+  }, [loading, orders.length])
 
   useEffect(() => {
-    if (!authLoading && user) {
+    if (!loading && !user) {
+      return
+    }
+    
+    if (user && !hasRun.current) {
+      hasRun.current = true
       fetchOrders()
+    } else if (!user) {
+      setLoading(false)
     }
-  }, [user, authLoading])
+  }, [user, loading])
 
-  // Retry mechanism for failed requests
-  const retryFetchOrders = async () => {
-    if (retryCount < 3) {
-      setRetryCount(prev => prev + 1)
-      // Wait a bit before retrying
-      setTimeout(() => {
-        fetchOrders()
-      }, 1000 * (retryCount + 1)) // Exponential backoff
-    }
-  }
+
 
   const fetchOrders = async () => {
     setLoading(true);
@@ -93,7 +88,6 @@ export default function OrdersPage() {
             })) : []
           }));
           setOrders(formattedOrders);
-           setRetryCount(0); // Reset retry count on success
            setLoading(false);
            return;
         } else if (rpcError) {
@@ -124,7 +118,6 @@ export default function OrdersPage() {
         if (!detailedError && detailedOrders) {
           console.log("Successfully fetched orders via direct query", detailedOrders);
           setOrders(detailedOrders);
-           setRetryCount(0); // Reset retry count on success
            setLoading(false);
            return;
         } else if (detailedError) {
@@ -186,27 +179,22 @@ export default function OrdersPage() {
         );
 
         setOrders(ordersWithItems);
-         setRetryCount(0); // Reset retry count on success
          setLoading(false);
       } catch (finalError) {
          console.error("Final fallback failed:", finalError);
          setOrders([]);
          setLoading(false);
-         // Try to retry if we haven't exceeded retry limit
-         if (retryCount < 3) {
-           console.log(`Retrying fetch orders (attempt ${retryCount + 1}/3)`);
-           retryFetchOrders();
-         }
+         // Force page reload on critical error
+         console.log('Critical error - forcing page reload')
+         setTimeout(() => window.location.reload(), 2000)
        }
     } catch (error) {
        console.error("Critical error in fetchOrders:", error);
        setOrders([]);
        setLoading(false);
-       // Try to retry if we haven't exceeded retry limit
-       if (retryCount < 3) {
-         console.log(`Retrying fetch orders (attempt ${retryCount + 1}/3)`);
-         retryFetchOrders();
-       }
+       // Force page reload on critical error
+       console.log('Critical error - forcing page reload')
+       setTimeout(() => window.location.reload(), 2000)
      }
   }
 
@@ -249,30 +237,10 @@ export default function OrdersPage() {
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900 mb-4">My Orders</h1>
-              <p className="text-gray-600">Track your furniture orders and delivery status</p>
-            </div>
-            <button
-              onClick={() => {
-                setRetryCount(0);
-                fetchOrders();
-              }}
-              disabled={loading}
-              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-              <span>{loading ? 'Loading...' : 'Refresh'}</span>
-            </button>
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-4">My Orders</h1>
+            <p className="text-gray-600">Track your furniture orders and delivery status</p>
           </div>
-          {retryCount > 0 && (
-            <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-              <p className="text-sm text-yellow-800">
-                Retrying to fetch orders... (Attempt {retryCount}/3)
-              </p>
-            </div>
-          )}
         </div>
 
         {orders.length === 0 ? (
