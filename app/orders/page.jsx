@@ -7,12 +7,28 @@ import { supabase } from '@/lib/supabase'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { LoadingPage } from '@/components/ui/loading'
-import { Package, Calendar, MapPin, DollarSign } from 'lucide-react'
+import { Package, Calendar, MapPin, DollarSign, RefreshCw } from 'lucide-react'
 
 export default function OrdersPage() {
   const { user, loading: authLoading } = useAuth()
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
+  const [retryCount, setRetryCount] = useState(0)
+
+  // Refresh session periodically to avoid stale connections
+  useEffect(() => {
+    const refreshSession = async () => {
+      try {
+        await supabase.auth.refreshSession()
+      } catch (error) {
+        console.log('Session refresh failed:', error)
+      }
+    }
+
+    // Refresh session every 5 minutes
+    const interval = setInterval(refreshSession, 5 * 60 * 1000)
+    return () => clearInterval(interval)
+  }, [])
 
   useEffect(() => {
     if (!authLoading && user) {
@@ -20,106 +36,141 @@ export default function OrdersPage() {
     }
   }, [user, authLoading])
 
+  // Retry mechanism for failed requests
+  const retryFetchOrders = async () => {
+    if (retryCount < 3) {
+      setRetryCount(prev => prev + 1)
+      // Wait a bit before retrying
+      setTimeout(() => {
+        fetchOrders()
+      }, 1000 * (retryCount + 1)) // Exponential backoff
+    }
+  }
+
   const fetchOrders = async () => {
     setLoading(true);
     try {
       console.log("Fetching orders for user:", user?.id);
       if (!user?.id) {
         console.log("No user ID available, skipping fetch");
+        setOrders([]);
         setLoading(false);
         return;
       }
 
-      // Try RPC function first (if available)
-      let { data: rpcOrders, error: rpcError } = await supabase
-        .rpc('get_user_orders_with_details', { user_id_param: user.id });
-
-      if (!rpcError && rpcOrders && rpcOrders.length > 0) {
-        console.log("Successfully fetched orders via RPC", rpcOrders);
-        // Transform the data to match the expected format
-        const formattedOrders = rpcOrders.map(order => ({
-          ...order,
-          order_items: order.items ? order.items.map(item => ({
-            id: item.id,
-            product_id: item.product_id,
-            quantity: item.quantity,
-            price: item.price,
-            products: {
-              name: item.product_name,
-              image_url: item.product_image
-            }
-          })) : []
-        }));
-        setOrders(formattedOrders);
+      // Ensure we have a valid session before making requests
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        console.log('No valid session found');
+        setOrders([]);
         setLoading(false);
         return;
-      } else if (rpcError) {
-        console.log("RPC query failed, falling back to detailed query:", rpcError);
       }
 
-      // Try detailed query next
-      let { data: detailedOrders, error: detailedError } = await supabase
-        .from('orders')
-        .select(`
-          *,
-          order_items (
-            *,
-            products (
-              name,
-              image_url,
-              image_urls
-            )
-          )
-        `)
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
+      // Try RPC function first with shorter timeout
+       try {
+         const rpcPromise = supabase
+           .rpc('get_user_orders_with_details', { user_id_param: user.id })
+           .abortSignal(AbortSignal.timeout(5000)); // 5 second timeout
 
-      if (detailedError) {
-        console.error("Detailed query failed:", detailedError);
-        
-        // Try simpler query
-        let { data: simpleOrders, error: simpleError } = await supabase
-          .from('orders')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false });
+         const { data: rpcOrders, error: rpcError } = await rpcPromise;
+
+        if (!rpcError && rpcOrders && Array.isArray(rpcOrders)) {
+          console.log("Successfully fetched orders via RPC", rpcOrders);
+          // Transform the data to match the expected format
+          const formattedOrders = rpcOrders.map(order => ({
+            ...order,
+            order_items: order.items ? order.items.map(item => ({
+              id: item.id,
+              product_id: item.product_id,
+              quantity: item.quantity,
+              price: item.price,
+              products: {
+                name: item.product_name,
+                image_url: item.product_image,
+                image_urls: item.product_image ? [item.product_image] : []
+              }
+            })) : []
+          }));
+          setOrders(formattedOrders);
+           setRetryCount(0); // Reset retry count on success
+           setLoading(false);
+           return;
+        } else if (rpcError) {
+          console.log("RPC query failed, falling back to direct query:", rpcError);
+        }
+      } catch (rpcTimeoutError) {
+         console.log("RPC failed, falling back to direct query:", rpcTimeoutError.message);
+       }
+
+      // Fallback: Use direct query with correct column names
+      try {
+        const { data: detailedOrders, error: detailedError } = await supabase
+            .from('orders')
+            .select(`
+              *,
+              order_items (
+                *,
+                products (
+                  name,
+                  image_urls
+                )
+              )
+            `)
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false })
+            .abortSignal(AbortSignal.timeout(8000)); // 8 second timeout
+
+        if (!detailedError && detailedOrders) {
+          console.log("Successfully fetched orders via direct query", detailedOrders);
+          setOrders(detailedOrders);
+           setRetryCount(0); // Reset retry count on success
+           setLoading(false);
+           return;
+        } else if (detailedError) {
+          console.error("Direct query failed:", detailedError);
+        }
+      } catch (directTimeoutError) {
+         console.log("Direct query failed:", directTimeoutError.message);
+       }
+
+      // Final fallback: Simple orders query then fetch items separately
+       try {
+         const { data: simpleOrders, error: simpleError } = await supabase
+           .from('orders')
+           .select('*')
+           .eq('user_id', user.id)
+           .order('created_at', { ascending: false })
+           .abortSignal(AbortSignal.timeout(5000)); // 5 second timeout
 
         if (simpleError) {
-          console.error("Simple query failed:", simpleError);
-          
-          // Last resort: try direct table access
-          let { data: directOrders, error: directError } = await supabase
-            .from('orders')
-            .select()
-            .eq('user_id', user.id);
-            
-          if (directError || !directOrders) {
-            console.error("All query methods failed:", directError);
-            setOrders([]);
-            setLoading(false);
-            return;
-          }
-          
-          setOrders(directOrders.map(order => ({ ...order, order_items: [] })));
+          console.error("Simple orders query failed:", simpleError);
+          setOrders([]);
           setLoading(false);
           return;
         }
 
-        // If we got simple orders, fetch items separately
-        if (simpleOrders && simpleOrders.length > 0) {
-          const ordersWithItems = await Promise.all(
-            simpleOrders.map(async (order) => {
+        if (!simpleOrders || simpleOrders.length === 0) {
+          console.log("No orders found for user");
+          setOrders([]);
+          setLoading(false);
+          return;
+        }
+
+        // Fetch items for each order separately with error handling
+        const ordersWithItems = await Promise.all(
+          simpleOrders.map(async (order) => {
+            try {
               const { data: items, error: itemsError } = await supabase
-                .from('order_items')
-                .select(`
-                  *,
-                  products (
-                    name,
-                    image_url,
-                    image_urls
-                  )
-                `)
-                .eq('order_id', order.id);
+                 .from('order_items')
+                 .select(`
+                   *,
+                   products (
+                     name,
+                     image_urls
+                   )
+                 `)
+                 .eq('order_id', order.id);
 
               if (itemsError) {
                 console.error(`Failed to fetch items for order ${order.id}:`, itemsError);
@@ -127,29 +178,36 @@ export default function OrdersPage() {
               }
 
               return { ...order, order_items: items || [] };
-            })
-          );
+            } catch (itemFetchError) {
+              console.error(`Error fetching items for order ${order.id}:`, itemFetchError);
+              return { ...order, order_items: [] };
+            }
+          })
+        );
 
-          setOrders(ordersWithItems);
-          setLoading(false);
-          return;
-        }
-      } else if (detailedOrders) {
-        // Detailed query succeeded
-        setOrders(detailedOrders);
-        setLoading(false);
-        return;
-      }
-
-      // If we get here, no orders were found
-      console.log("No orders found for user");
-      setOrders([]);
-      setLoading(false);
+        setOrders(ordersWithItems);
+         setRetryCount(0); // Reset retry count on success
+         setLoading(false);
+      } catch (finalError) {
+         console.error("Final fallback failed:", finalError);
+         setOrders([]);
+         setLoading(false);
+         // Try to retry if we haven't exceeded retry limit
+         if (retryCount < 3) {
+           console.log(`Retrying fetch orders (attempt ${retryCount + 1}/3)`);
+           retryFetchOrders();
+         }
+       }
     } catch (error) {
-      console.error("Error fetching orders:", error);
-      setOrders([]);
-      setLoading(false);
-    }
+       console.error("Critical error in fetchOrders:", error);
+       setOrders([]);
+       setLoading(false);
+       // Try to retry if we haven't exceeded retry limit
+       if (retryCount < 3) {
+         console.log(`Retrying fetch orders (attempt ${retryCount + 1}/3)`);
+         retryFetchOrders();
+       }
+     }
   }
 
   const getStatusColor = (status) => {
@@ -191,8 +249,30 @@ export default function OrdersPage() {
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-4">My Orders</h1>
-          <p className="text-gray-600">Track your furniture orders and delivery status</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 mb-4">My Orders</h1>
+              <p className="text-gray-600">Track your furniture orders and delivery status</p>
+            </div>
+            <button
+              onClick={() => {
+                setRetryCount(0);
+                fetchOrders();
+              }}
+              disabled={loading}
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              <span>{loading ? 'Loading...' : 'Refresh'}</span>
+            </button>
+          </div>
+          {retryCount > 0 && (
+            <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <p className="text-sm text-yellow-800">
+                Retrying to fetch orders... (Attempt {retryCount}/3)
+              </p>
+            </div>
+          )}
         </div>
 
         {orders.length === 0 ? (
@@ -245,7 +325,7 @@ export default function OrdersPage() {
                       <div key={item.id || `item-${index}`} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
                         <div className="relative w-12 h-12 rounded-lg overflow-hidden">
                           <Image
-                            src={item.products?.image_urls?.[0] || item.products?.image_url || '/placeholder-furniture.jpg'}
+                            src={item.products?.image_urls?.[0] || '/placeholder-furniture.jpg'}
                             alt={item.products?.name || 'Product'}
                             fill
                             className="object-cover"
