@@ -17,29 +17,39 @@ import { Label } from '@/components/ui/label'
 
 export default function CartPage() {
   const { cartItems, updateQuantity, removeFromCart, clearCart, getCartTotal, getCartItemsCount } = useCart()
-  const { user } = useAuth()
+  const { user, loading: authLoading } = useAuth()
   const [isLoading, setIsLoading] = useState(false)
-const [shippingAddress, setShippingAddress] = useState('')
-const [phone, setPhone] = useState('')
+  const [shippingAddress, setShippingAddress] = useState('')
+  const [phone, setPhone] = useState('')
+  const [profileLoading, setProfileLoading] = useState(false)
 
-useEffect(() => {
-  const fetchProfile = async () => {
-    try {
-      const { data, error } = await safeQuery(async () => 
-        supabase.from('profiles').select('phone, address').eq('id', user.id).single()
-      )
-      if (error) throw error;
-      if (data) {
-        setPhone(data.phone || '')
-        setShippingAddress(data.address || '')
+  useEffect(() => {
+    const fetchProfile = async () => {
+      if (!user) return
+      
+      setProfileLoading(true)
+      try {
+        const { data, error } = await safeQuery(async () => 
+          supabase.from('profiles').select('phone, address').eq('id', user.id).single()
+        )
+        if (error) throw error;
+        if (data) {
+          setPhone(data.phone || '')
+          setShippingAddress(data.address || '')
+        }
+      } catch (error) {
+        console.error('Error fetching profile:', error)
+        toast.error('Failed to load profile data')
+      } finally {
+        setProfileLoading(false)
       }
-    } catch (error) {
-      console.error('Error fetching profile:', error)
-      toast.error('Failed to load profile data')
     }
-  }
-  if (user) fetchProfile()
-}, [user])
+    
+    // Only fetch profile if auth is not loading and we have a user
+    if (!authLoading && user) {
+      fetchProfile()
+    }
+  }, [user, authLoading])
 
   const handleCheckout = async () => {
     if (!user) {

@@ -6,6 +6,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { LoadingPage } from '@/components/ui/loading'
 import { Package, Calendar, MapPin, DollarSign } from 'lucide-react'
 
@@ -13,43 +14,42 @@ export default function OrdersPage() {
   const { user, loading: authLoading } = useAuth()
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const hasRun = useRef(false)
 
-  // Add loading timeout protection
   useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      if (loading && orders.length === 0) {
-        console.log("Loading timeout - forcing refresh")
-        window.location.reload()
-      }
-    }, 10000) // 10 second timeout for orders
-    
-    return () => clearTimeout(timeoutId)
-  }, [loading, orders.length])
-
-  useEffect(() => {
-    if (!loading && !user) {
+    // Wait for auth to finish loading
+    if (authLoading) {
       return
     }
     
+    // If no user after auth loading is complete, show not logged in state
+    if (!user) {
+      setLoading(false)
+      setError('Please sign in to view your orders')
+      return
+    }
+    
+    // If we have a user and haven't fetched orders yet
     if (user && !hasRun.current) {
       hasRun.current = true
       fetchOrders()
-    } else if (!user) {
-      setLoading(false)
     }
-  }, [user, loading])
+  }, [user, authLoading])
 
 
 
   const fetchOrders = async () => {
     setLoading(true);
+    setError(null);
+    
     try {
       console.log("Fetching orders for user:", user?.id);
       if (!user?.id) {
         console.log("No user ID available, skipping fetch");
         setOrders([]);
         setLoading(false);
+        setError('User not authenticated');
         return;
       }
 
@@ -59,6 +59,7 @@ export default function OrdersPage() {
         console.log('No valid session found');
         setOrders([]);
         setLoading(false);
+        setError('Session expired. Please sign in again.');
         return;
       }
 
@@ -184,17 +185,13 @@ export default function OrdersPage() {
          console.error("Final fallback failed:", finalError);
          setOrders([]);
          setLoading(false);
-         // Force page reload on critical error
-         console.log('Critical error - forcing page reload')
-         setTimeout(() => window.location.reload(), 2000)
+         setError('Failed to load orders. Please try again.');
        }
     } catch (error) {
        console.error("Critical error in fetchOrders:", error);
        setOrders([]);
        setLoading(false);
-       // Force page reload on critical error
-       console.log('Critical error - forcing page reload')
-       setTimeout(() => window.location.reload(), 2000)
+       setError('An unexpected error occurred. Please try again.');
      }
   }
 
@@ -227,6 +224,35 @@ export default function OrdersPage() {
             <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
             <h2 className="text-xl font-semibold mb-2">Sign In Required</h2>
             <p className="text-gray-600 mb-4">Please sign in to view your orders</p>
+            <Button 
+              onClick={() => window.location.href = '/auth'}
+              className="mt-4"
+            >
+              Sign In
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Card className="max-w-md w-full mx-4">
+          <CardContent className="p-6 text-center">
+            <Package className="h-12 w-12 text-red-400 mx-auto mb-4" />
+            <h2 className="text-xl font-semibold mb-2">Error Loading Orders</h2>
+            <p className="text-gray-600 mb-4">{error}</p>
+            <Button 
+              onClick={() => {
+                hasRun.current = false;
+                fetchOrders();
+              }}
+              className="mt-4"
+            >
+              Try Again
+            </Button>
           </CardContent>
         </Card>
       </div>

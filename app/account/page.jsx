@@ -29,8 +29,13 @@ export default function AccountPage() {
   const hasRun = useRef(false);
 
   useEffect(() => {
+    // Wait for auth loading to complete
+    if (loading) {
+      return;
+    }
+    
     // Only redirect if we're sure user isn't authenticated
-    if (!loading && !user) {
+    if (!user) {
       router.push('/auth');
       return;
     }
@@ -63,19 +68,7 @@ export default function AccountPage() {
 
       fetchProfileData();
     }
-  }, [user, loading]) // Remove router from dependencies
-
-  // Add loading timeout protection
-  useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      if (loading) {
-        console.log("Loading timeout - forcing refresh");
-        window.location.reload();
-      }
-    }, 2000); // 2 second timeout
-    
-    return () => clearTimeout(timeoutId);
-  }, [loading]);
+  }, [user, loading, router])
 
   const handleLogout = async () => {
     try {
