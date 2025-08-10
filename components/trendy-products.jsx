@@ -8,10 +8,45 @@ export default function TrendyProducts({ products = [] }) {
   const centerTableScrollRef = useRef(null);
   const diningScrollRef = useRef(null);
   const diningChairScrollRef = useRef(null);
-  // Filter products by the 3 specific categories
-  const centerTables = products.filter(product => product.categories?.name === 'Center Table').slice(0, 4);
-  const dining = products.filter(product => product.categories?.name === 'Dining' || product.categories?.name === 'Dining Table' || product.categories?.name === 'Fine Dining Furniture').slice(0, 4);
-  const diningChairs = products.filter(product => product.categories?.name === 'Dining Chair').slice(0, 4);
+  // Group products by category dynamically
+  const productsByCategory = products.reduce((acc, product) => {
+    const categoryName = product.categories?.name || 'Uncategorized';
+    if (!acc[categoryName]) {
+      acc[categoryName] = [];
+    }
+    acc[categoryName].push(product);
+    return acc;
+  }, {});
+  
+  // Define preferred category order
+  const preferredCategories = ['Center Table', 'Dining Table', 'Dining Chair'];
+  
+  // Get categories in preferred order, fallback to categories with most products
+  const topCategories = [];
+  
+  // First, add preferred categories if they have products
+  preferredCategories.forEach(categoryName => {
+    if (productsByCategory[categoryName] && productsByCategory[categoryName].length > 0) {
+      topCategories.push({
+        name: categoryName,
+        products: productsByCategory[categoryName].slice(0, 4)
+      });
+    }
+  });
+  
+  // If we don't have 3 categories yet, fill with other categories by product count
+  if (topCategories.length < 3) {
+    const remainingCategories = Object.entries(productsByCategory)
+      .filter(([categoryName]) => !preferredCategories.includes(categoryName))
+      .sort(([,a], [,b]) => b.length - a.length)
+      .slice(0, 3 - topCategories.length)
+      .map(([categoryName, categoryProducts]) => ({
+        name: categoryName,
+        products: categoryProducts.slice(0, 4)
+      }));
+    
+    topCategories.push(...remainingCategories);
+  }
   // Create a placeholder image - use relative path instead of direct URL
   const placeholderImage = "/placeholder.jpg";
   // Scroll handlers
@@ -150,9 +185,19 @@ export default function TrendyProducts({ products = [] }) {
             TRENDY PRODUCTS
           </h2>
         </div>
-        {renderProductGrid(centerTables, 'Center Table', centerTableScrollRef, '/products?category=Center Table')}
-        {renderProductGrid(dining, 'Dining', diningScrollRef, '/products?category=Dining')}
-        {renderProductGrid(diningChairs, 'Dining Chair', diningChairScrollRef, '/products?category=Dining Chair')}
+        {topCategories.map((category, index) => {
+          const scrollRef = index === 0 ? centerTableScrollRef : index === 1 ? diningScrollRef : diningChairScrollRef;
+          return (
+            <div key={category.name}>
+              {renderProductGrid(
+                category.products, 
+                category.name, 
+                scrollRef, 
+                `/products?category=${encodeURIComponent(category.name)}`
+              )}
+            </div>
+          );
+        })}
       </div>
     </section>
   );

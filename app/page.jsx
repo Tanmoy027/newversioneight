@@ -13,23 +13,17 @@ export default async function Home() {
   let products = [];
   
   try {
-    const { data: categories, error: catError } = await supabase
-      .from('categories')
-      .select('id')
-      .in('name', ['Center Table', 'Dining Table', 'Dining Chair']);
-    if (catError) {
-      console.error("Supabase category error:", catError);
+    // Fetch all products instead of limiting to specific categories
+    const { data, error } = await supabase
+      .from('products')
+      .select('*, categories(name)')
+      .order('created_at', { ascending: false })
+      .limit(20); // Limit to 20 most recent products for performance
+    
+    if (error) {
+      console.error("Supabase error:", error);
     } else {
-      const catIds = categories?.map(c => c.id) || [];
-      const { data, error } = await supabase
-        .from('products')
-        .select('*, categories(name)')
-        .in('category_id', catIds);
-      if (error) {
-        console.error("Supabase error:", error);
-      } else {
-        products = data || [];
-      }
+      products = data || [];
     }
   } catch (err) {
     console.error("Failed to fetch products:", err);

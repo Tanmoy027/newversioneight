@@ -1,6 +1,5 @@
 'use client'
-
-import { useState, useEffect, useRef } from 'react'  // Add useRef here
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -9,12 +8,22 @@ import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
 import { useAuth } from '@/hooks/useAuth'
-import { User, Mail, Calendar, ShoppingBag, LogOut, Edit, Save, X } from 'lucide-react'
+import { User, Mail, Calendar, ShoppingBag, LogOut, Edit, Save, X, RefreshCw, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { supabase, safeQuery, ensureUserProfile } from '@/lib/supabase'
 
+// Helper function to add timeout to promises
+const withTimeout = (promise, timeoutMs = 10000) => {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Request timed out')), timeoutMs)
+    )
+  ])
+}
+
 export default function AccountPage() {
-  const { user, signOut, loading, refreshUser } = useAuth()
+  const { user, signOut, loading: authLoading, refreshUser } = useAuth()
   const router = useRouter()
   const [isEditing, setIsEditing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -24,51 +33,109 @@ export default function AccountPage() {
     phone: '',
     address: ''
   })
+  const [profileState, setProfileState] = useState({
+    loading: false,
+    error: null,
+    retryCount: 0
+  })
+  const abortController = useRef(null)
 
-  // Create the ref before the useEffect
-  const hasRun = useRef(false);
-
-  useEffect(() => {
-    // Wait for auth loading to complete
-    if (loading) {
-      return;
-    }
+  // Fetch profile data with retry logic
+  const fetchProfileData = async (isRetry = false) => {
+    if (!user) return
     
-    // Only redirect if we're sure user isn't authenticated
-    if (!user) {
-      router.push('/auth');
-      return;
-    }
-    
-    // Only run the fetch operation when we have a user and haven't already fetched
-    if (user && !hasRun.current) {
-      const fetchProfileData = async () => {
-        try {
-          // Set a flag to prevent multiple fetches while this one is in progress
-          hasRun.current = true;
-          
-          const { data, error } = await safeQuery(async () => 
-            supabase.from('profiles').select('full_name, email, phone, address').eq('id', user.id).single()
-          );
-          
-          if (error) throw error;
-          if (data) {
-            setProfileData({
-              full_name: data.full_name || user?.email?.split('@')[0] || '',
-              email: data.email || user?.email || '',
-              phone: data.phone || '',
-              address: data.address || ''
-            });
+    try {
+      setProfileState(prev => ({ ...prev, loading: true, error: null }))
+      
+      // Create new abort controller for this request
+      abortController.current = new AbortController()
+      
+      // Add timeout to the query
+      const { data, error } = await withTimeout(
+        safeQuery(async () => 
+          supabase.from('profiles').select('full_name, email, phone, address').eq('id', user.id).single()
+        ),
+        10000 // 10 second timeout
+      )
+      
+      if (error) throw error
+      
+      if (data) {
+        setProfileData({
+          full_name: data.full_name || user?.email?.split('@')[0] || '',
+          email: data.email || user?.email || '',
+          phone: data.phone || '',
+          address: data.address || ''
+        })
+        
+        // Cache profile data in localStorage
+        localStorage.setItem('userProfile', JSON.stringify({
+          full_name: data.full_name || user?.email?.split('@')[0] || '',
+          email: data.email || user?.email || '',
+          phone: data.phone || '',
+          address: data.address || ''
+        }))
+      }
+    } catch (error) {
+      console.error('Error fetching profile:', error)
+      
+      // Set error state
+      setProfileState(prev => ({
+        ...prev,
+        error: error.message || 'Failed to load profile data'
+      }))
+      
+      // Show toast with retry option
+      toast.error('Failed to load profile data', {
+        description: error.message || 'Please check your connection and try again',
+        action: {
+          label: 'Retry',
+          onClick: () => {
+            setProfileState(prev => ({ 
+              ...prev, 
+              retryCount: prev.retryCount + 1 
+            }))
           }
-        } catch (error) {
-          console.error('Error fetching profile:', error);
-          toast.error('Failed to load profile data');
         }
-      };
-
-      fetchProfileData();
+      })
+    } finally {
+      setProfileState(prev => ({ ...prev, loading: false }))
+      abortController.current = null
     }
-  }, [user, loading, router])
+  }
+
+  // Effect to handle auth and profile loading
+  useEffect(() => {
+    // Skip if auth is still loading
+    if (authLoading) return
+    
+    // Redirect if not authenticated
+    if (!user) {
+      router.push('/auth')
+      return
+    }
+    
+    // Try to load from cache first
+    const cachedProfile = localStorage.getItem('userProfile')
+    if (cachedProfile) {
+      try {
+        const parsed = JSON.parse(cachedProfile)
+        setProfileData(parsed)
+      } catch (e) {
+        console.error('Failed to parse cached profile:', e)
+      }
+    }
+    
+    // Fetch fresh data
+    fetchProfileData()
+    
+    // Cleanup function to abort request if component unmounts
+    return () => {
+      if (abortController.current) {
+        abortController.current.abort()
+      }
+    }
+  }, [user, authLoading, router, profileState.retryCount])
 
   const handleLogout = async () => {
     try {
@@ -91,43 +158,43 @@ export default function AccountPage() {
       console.log('Starting profile update...')
       
       // Ensure user profile exists
-console.log('Ensuring user profile exists...')
-let profileExists
-try {
-  profileExists = await safeQuery(async () => await ensureUserProfile(user))
-} catch (error) {
-  throw new Error('Failed to ensure user profile: ' + error.message)
-}
-if (!profileExists) {
-  throw new Error('Failed to create or verify user profile')
-}
-console.log('User profile verified')
-      
-      
+      console.log('Ensuring user profile exists...')
+      let profileExists
+      try {
+        profileExists = await safeQuery(async () => await ensureUserProfile(user))
+      } catch (error) {
+        throw new Error('Failed to ensure user profile: ' + error.message)
+      }
+      if (!profileExists) {
+        throw new Error('Failed to create or verify user profile')
+      }
+      console.log('User profile verified')
       
       // Update profiles table
-console.log('Updating profiles table...')
-const { error: profileUpdateError } = await safeQuery(async () => 
-  supabase
-    .from('profiles')
-    .update({ 
-      full_name: profileData.full_name,
-      phone: profileData.phone,
-      address: profileData.address
-    })
-    .eq('id', user.id)
-)
-
-if (profileUpdateError) {
-  console.error('Profile update error:', profileUpdateError)
-  throw new Error(`Failed to update profile: ${profileUpdateError.message}`)
-}
-console.log('Profiles update successful')
+      console.log('Updating profiles table...')
+      const { error: profileUpdateError } = await safeQuery(async () => 
+        supabase
+          .from('profiles')
+          .update({ 
+            full_name: profileData.full_name,
+            phone: profileData.phone,
+            address: profileData.address
+          })
+          .eq('id', user.id)
+      )
+      if (profileUpdateError) {
+        console.error('Profile update error:', profileUpdateError)
+        throw new Error(`Failed to update profile: ${profileUpdateError.message}`)
+      }
+      console.log('Profiles update successful')
+      
+      // Update cache
+      localStorage.setItem('userProfile', JSON.stringify(profileData))
       
       // Refresh user data
-console.log('Refreshing user data...')
-await refreshUser()
-console.log('User data refreshed')
+      console.log('Refreshing user data...')
+      await refreshUser()
+      console.log('User data refreshed')
       
       toast.success('Profile updated successfully')
       setIsEditing(false)
@@ -147,11 +214,40 @@ console.log('User data refreshed')
     }))
   }
 
-  if (loading) {
+  const handleRetry = () => {
+    setProfileState(prev => ({ 
+      ...prev, 
+      retryCount: prev.retryCount + 1,
+      error: null
+    }))
+  }
+
+  // Combined loading state
+  const isLoading = authLoading || profileState.loading
+
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-gray-600">Loading...</p>
+        <div className="text-center max-w-md">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto mb-4"></div>
+          <p className="text-gray-600 mb-4">Loading your account...</p>
+          
+          {profileState.error && (
+            <div className="bg-red-50 p-4 rounded-md mb-4">
+              <div className="flex items-center text-red-800 mb-2">
+                <AlertCircle className="h-5 w-5 mr-2" />
+                <span>Error: {profileState.error}</span>
+              </div>
+              <Button 
+                variant="outline" 
+                onClick={handleRetry}
+                className="flex items-center mx-auto"
+              >
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Retry
+              </Button>
+            </div>
+          )}
         </div>
       </div>
     )
@@ -175,7 +271,26 @@ console.log('User data refreshed')
           <h1 className="text-3xl font-bold text-gray-900 mb-2">My Account</h1>
           <p className="text-gray-600">Manage your account settings and preferences</p>
         </div>
-
+        
+        {/* Error banner if profile fetch failed */}
+        {profileState.error && (
+          <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded">
+            <div className="flex items-center">
+              <AlertCircle className="h-5 w-5 text-red-500 mr-2" />
+              <p className="text-red-700">Failed to load profile: {profileState.error}</p>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={handleRetry}
+                className="ml-auto"
+              >
+                <RefreshCw className="h-4 w-4 mr-1" />
+                Retry
+              </Button>
+            </div>
+          </div>
+        )}
+        
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Profile Information */}
           <div className="lg:col-span-2">
@@ -235,7 +350,6 @@ console.log('User data refreshed')
                       <p className="text-gray-900">{profileData.full_name || 'Not provided'}</p>
                     )}
                   </div>
-
                   <div className="space-y-2">
                     <Label htmlFor="email">Email</Label>
                     <div className="flex items-center gap-2">
@@ -244,7 +358,6 @@ console.log('User data refreshed')
                       <Badge variant="secondary" className="text-xs">Verified</Badge>
                     </div>
                   </div>
-
                   <div className="space-y-2">
                     <Label htmlFor="phone">Phone Number</Label>
                     {isEditing ? (
@@ -258,7 +371,6 @@ console.log('User data refreshed')
                       <p className="text-gray-900">{profileData.phone || 'Not provided'}</p>
                     )}
                   </div>
-
                   <div className="space-y-2">
                     <Label htmlFor="address">Address</Label>
                     {isEditing ? (
@@ -273,9 +385,7 @@ console.log('User data refreshed')
                     )}
                   </div>
                 </div>
-
                 <Separator />
-
                 <div className="flex items-center gap-2 text-sm text-gray-600">
                   <Calendar className="h-4 w-4" />
                   <span>
@@ -289,7 +399,7 @@ console.log('User data refreshed')
               </CardContent>
             </Card>
           </div>
-
+          
           {/* Account Actions */}
           <div className="space-y-6">
             {/* Quick Actions */}
@@ -315,21 +425,19 @@ console.log('User data refreshed')
                   <ShoppingBag className="h-4 w-4" />
                   View Cart
                 </Button>
-
                 <Separator />
-
                 <Button
                   variant="destructive"
                   className="w-full justify-start gap-2"
                   onClick={handleLogout}
-                  disabled={loading}
+                  disabled={isSaving}
                 >
                   <LogOut className="h-4 w-4" />
-                  {loading ? 'Logging out...' : 'Logout'}
+                  {isSaving ? 'Logging out...' : 'Logout'}
                 </Button>
               </CardContent>
             </Card>
-
+            
             {/* Account Stats */}
             <Card>
               <CardHeader>
